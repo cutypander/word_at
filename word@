@@ -1,0 +1,219 @@
+#!/bin/bash
+
+# ==========================================
+# SYSTEM VARIABLES & PATHS
+# ==========================================
+BANK_DIR="$HOME/WordBank"
+FLOPPY_DIR="/mnt/floppy"
+LEDGER_FILE="$HOME/.floppy_ledger"
+SAFE_OVERHEAD=50
+
+# The Word@ Color Palette
+ORANGE='\033[38;5;208m'
+WHITE='\033[1;37m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+# Phonetic Array for Disk Naming
+NATO=(ALPHA BRAVO CHARLIE DELTA ECHO FOXTROT GOLF HOTEL INDIA JULIETT KILO LIMA MIKE NOVEMBER OSCAR PAPA QUEBEC ROMEO SIERRA TANGO UNIFORM VICTOR WHISKEY XRAY YANKEE ZULU)
+
+# Guarantee local Bank and Ledger exist
+mkdir -p "$BANK_DIR"
+touch "$LEDGER_FILE"
+
+# ==========================================
+# THE SWITCHBOARD
+# ==========================================
+case "$1" in
+
+    "?well")
+        echo -e "${ORANGE}========================================${NC}"
+        echo -e "${WHITE}   Welcome to the Terminal Workspace    ${NC}"
+        echo -e "${ORANGE}========================================${NC}"
+        echo -e "${ORANGE}This is a distraction-free drafting environment."
+        echo -e "Everything you write is secured in a local bank"
+        echo -e "before being archived to physical floppy disks.${NC}\n"
+        echo -e "${ORANGE}To see the available commands, type: ${WHITE}word@ help!${NC}"
+        echo -e "${ORANGE}========================================${NC}"
+        exit 0
+        ;;
+
+    "help!")
+        echo -e "${WHITE}COMMAND DIRECTORY:${NC}"
+        echo -e "  ${WHITE}[no flag]${NC} - Standard Mode: Open a file in Nano."
+        echo -e "  ${WHITE}raw${NC}       - Raw Mode: Write directly to the terminal."
+        echo -e "  ${WHITE}TTF${NC}       - Text To Floppy: Archive bank to disk."
+        echo -e "  ${WHITE}init${NC}      - Format, scan, and stamp a new floppy."
+        echo -e "  ${WHITE}?scan${NC}     - Run a magnetic surface health check."
+        echo -e "  ${WHITE}?flop${NC}     - Check floppy drive status/capacity."
+        echo -e "  ${WHITE}?gath${NC}     - Calculate file sizes and bank weight."
+        echo -e "  ${WHITE}?when${NC}     - Display creation/modification dates."
+        echo -e "  ${WHITE}del:(${NC}     - Permanently delete a file from bank."
+        echo -e "  ${WHITE}?work${NC}     - Run system access diagnostics."
+        exit 0
+        ;;
+
+    "raw")
+        # Check for silent argument bypass
+        if [ -n "$2" ]; then
+            filename="$2"
+        else
+            read -p "Enter document name: " filename
+        fi
+        
+        TEMP_FILE="$BANK_DIR/.$filename.tmp"
+        FINAL_FILE="$BANK_DIR/$filename.txt"
+        
+        echo -e "${ORANGE}========================================${NC}"
+        echo -e "${WHITE} RAW WRITING MODE ENGAGED${NC}"
+        echo -e "${ORANGE} Type //SAVE on a new line to keep your work."
+        echo -e " Type //REJECT on a new line to burn it.${NC}"
+        echo -e "${ORANGE}========================================${NC}"
+        
+        > "$TEMP_FILE"
+        
+        while IFS= read -r line; do
+            if [[ "$line" == "//SAVE" ]]; then
+                mv "$TEMP_FILE" "$FINAL_FILE"
+                echo -e "${WHITE}Draft secured in Bank as $filename.txt${NC}"
+                exit 0
+            elif [[ "$line" == "//REJECT" ]]; then
+                rm -f "$TEMP_FILE"
+                echo -e "${RED}Draft rejected. Burned to ash.${NC}"
+                exit 0
+            else
+                echo "$line" >> "$TEMP_FILE"
+            fi
+        done
+        ;;
+
+    "init")
+        if [ ! -d "$FLOPPY_DIR" ]; then
+            echo -e "${RED}Error: No disk inserted to initialize.${NC}"
+            exit 1
+        fi
+        
+        echo -e "${ORANGE}========================================${NC}"
+        echo -e "${WHITE}   INITIALIZING NEW FLOPPY HARDWARE${NC}"
+        echo -e "${ORANGE}========================================${NC}"
+        
+        NEW_ID=$(tr -dc A-Z0-9 </dev/urandom | head -c 6)
+        
+        WORD1=${NATO[$RANDOM % 26]}
+        if grep -q "NAME: $WORD1" "$LEDGER_FILE"; then
+            WORD2=${NATO[$RANDOM % 26]}
+            DISK_NAME="$WORD1-$WORD2"
+        else
+            DISK_NAME="$WORD1"
+        fi
+        
+        echo "$NEW_ID" > "$FLOPPY_DIR/.disk_id"
+        echo -e "${WHITE}Hardware Stamped. Assigned Name: $DISK_NAME${NC}"
+        
+        echo -e "${ORANGE}Running deep magnetic scan (This will take a moment)...${NC}"
+        DEVICE=$(df "$FLOPPY_DIR" | tail -1 | awk '{print $1}')
+        
+        BAD_COUNT=$(sudo badblocks -q "$DEVICE" | wc -l)
+        
+        if [ "$BAD_COUNT" -gt 0 ]; then
+            echo -e "${RED}WARNING: $BAD_COUNT dead sectors detected.${NC}"
+        else
+            echo -e "${WHITE}Scan complete. Surface integrity is 100%.${NC}"
+        fi
+        
+        echo "ID: $NEW_ID | NAME: $DISK_NAME | BAD_BLOCKS: $BAD_COUNT" >> "$LEDGER_FILE"
+        echo -e "${ORANGE}Disk successfully integrated into the ecosystem.${NC}"
+        exit 0
+        ;;
+
+    "TTF")
+        echo -e "${WHITE}Initiating TTF Archive Protocol...${NC}"
+        if [ ! -d "$FLOPPY_DIR" ]; then
+            echo -e "${RED}Error: Floppy drive not detected.${NC}"
+            exit 1
+        fi
+
+        if [ ! -f "$FLOPPY_DIR/.disk_id" ]; then
+            echo -e "${ORANGE}Unrecognized disk detected. Running rapid-init...${NC}"
+            NEW_ID=$(tr -dc A-Z0-9 </dev/urandom | head -c 6)
+            DISK_NAME=${NATO[$RANDOM % 26]}
+            
+            if grep -q "NAME: $DISK_NAME" "$LEDGER_FILE"; then
+                DISK_NAME="$DISK_NAME-${NATO[$RANDOM % 26]}"
+            fi
+            
+            echo "$NEW_ID" > "$FLOPPY_DIR/.disk_id"
+            echo "ID: $NEW_ID | NAME: $DISK_NAME | BAD_BLOCKS: 0" >> "$LEDGER_FILE"
+            echo -e "${WHITE}Rapid-init complete. Disk named: $DISK_NAME${NC}"
+        fi
+
+        CURRENT_ID=$(cat "$FLOPPY_DIR/.disk_id")
+        KNOWN_NAME=$(grep "ID: $CURRENT_ID" "$LEDGER_FILE" | awk -F'NAME: ' '{print $2}' | awk '{print $1}')
+        BAD_BLOCKS=$(grep "ID: $CURRENT_ID" "$LEDGER_FILE" | awk -F'BAD_BLOCKS: ' '{print $2}' | awk '{print $1}')
+        
+        echo -e "${ORANGE}Archiving Bank to Floppy: $KNOWN_NAME${NC}"
+
+        FREE_SPACE=$(df -k "$FLOPPY_DIR" | awk 'NR==2 {print $4}')
+        SAFE_SPACE=$((FREE_SPACE - BAD_BLOCKS - SAFE_OVERHEAD))
+
+        if [ "$SAFE_SPACE" -le 0 ]; then
+            echo -e "${RED}Error: Floppy is full or overhead limit reached.${NC}"
+            exit 1
+        fi
+
+        for FILE in "$BANK_DIR"/*.txt; do
+            [ -e "$FILE" ] || continue
+
+            FILE_SIZE=$(du -k "$FILE" | cut -f1)
+            REQUIRED_SPACE=$((FILE_SIZE * 2))
+
+            if [ "$REQUIRED_SPACE" -le "$SAFE_SPACE" ]; then
+                BASENAME=$(basename "$FILE")
+                NAME="${BASENAME%.*}"
+                
+                cp "$FILE" "$FLOPPY_DIR/${NAME}.txt"
+                cp "$FILE" "$FLOPPY_DIR/${NAME}_BKP.txt"
+                
+                SAFE_SPACE=$((SAFE_SPACE - REQUIRED_SPACE))
+                echo -e "${WHITE}Archived & Duplicated: $BASENAME${NC}"
+            else
+                echo -e "${RED}Skipped: $BASENAME (Exceeds remaining space)${NC}"
+            fi
+        done
+        echo -e "${ORANGE}TTF Transfer Complete.${NC}"
+        exit 0
+        ;;
+
+    "?scan")
+        echo -e "${ORANGE}========================================${NC}"
+        echo -e "${WHITE} INITIATING MAGNETIC SURFACE SCAN${NC}"
+        echo -e "${ORANGE}========================================${NC}"
+        if [ -d "$FLOPPY_DIR" ]; then
+            DEVICE=$(df "$FLOPPY_DIR" | tail -1 | awk '{print $1}')
+            if [[ "$DEVICE" == /dev/* ]]; then
+                echo -e "${ORANGE}Targeting hardware: $DEVICE${NC}"
+                echo -e "${ORANGE}Listening for dead sectors. Please wait...${NC}"
+                echo "----------------------------------------"
+                sudo badblocks -v "$DEVICE"
+                echo "----------------------------------------"
+                echo -e "${WHITE}Scan complete.${NC}"
+            else
+                echo -e "${RED}Error: Could not isolate hardware path.${NC}"
+            fi
+        else
+            echo -e "${RED}Error: No floppy drive detected.${NC}"
+        fi
+        exit 0
+        ;;
+
+    *)
+        # Default behavior: Open or create file in Nano
+        if [ -n "$1" ]; then
+            filename="$1"
+        else
+            read -p "Enter document name: " filename
+        fi
+        filepath="$BANK_DIR/$filename.txt"
+        nano "$filepath"
+        ;;
+esac
