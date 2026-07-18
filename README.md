@@ -34,7 +34,7 @@ it clear that the floppy is dying.
 
 How to install:
 
-1: git clone [https://github.com/cutypander/word_at.git](https://github.com/cutypander/word_at.git)
+1: git clone https://github.com/cutypander/word_at.git
 
 2: cd word_at
 
