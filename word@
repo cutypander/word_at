@@ -48,6 +48,7 @@ case "$1" in
         echo -e "  ${WHITE}?flop${NC}     - Check floppy drive status/capacity."
         echo -e "  ${WHITE}?gath${NC}     - Calculate file sizes and bank weight."
         echo -e "  ${WHITE}?when${NC}     - Display creation/modification dates."
+        echo -e "  ${WHITE}view${NC}      - Stream a document to the terminal in 16-bit."
         echo -e "  ${WHITE}del!${NC}      - Access system burn protocols."
         echo -e "  ${WHITE}?work${NC}     - Run system access diagnostics."
         echo -e "  ${WHITE}update${NC}    - Pull the latest version from GitHub."
@@ -310,6 +311,41 @@ case "$1" in
         echo -e "${ORANGE}========================================${NC}"
         # Lists files sorted by time, formatting the date nicely
         ls -lt --time-style=+"%Y-%m-%d %H:%M" "$BANK_DIR"/*.txt 2>/dev/null | awk '{print $6 " " $7 "\t" $8}' | sed "s|$BANK_DIR/||g"
+        exit 0
+        ;;
+
+    "view")
+        # Check if a filename was provided, otherwise ask for it
+        if [ -n "$2" ]; then
+            target="$2"
+        else
+            read -p "Enter document name to view: " target
+        fi
+        
+        FILE_PATH="$BANK_DIR/$target.txt"
+        
+        if [ -f "$FILE_PATH" ]; then
+            echo -e "${ORANGE}========================================${NC}"
+            echo -e "${WHITE} STREAMING DATA: $target.txt${NC}"
+            echo -e "${ORANGE}========================================${NC}"
+            echo -e "${WHITE}" # Set the text color for the document
+            
+            # The 16-bit Typewriter Loop
+            while IFS= read -r line; do
+                # Iterate through the line character by character
+                for (( i=0; i<${#line}; i++ )); do
+                    echo -n "${line:$i:1}"
+                    sleep 0.02 # This creates the delay
+                done
+                echo "" # Add the carriage return at the end of each line
+            done < "$FILE_PATH"
+            
+            echo -e "${NC}" # Reset the color back to normal
+            echo -e "${ORANGE}========================================${NC}"
+            echo -e "${WHITE} END OF STREAM${NC}"
+        else
+            echo -e "${RED}Document '$target.txt' not found in WordBank.${NC}"
+        fi
         exit 0
         ;;
 
