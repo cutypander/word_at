@@ -48,7 +48,7 @@ case "$1" in
         echo -e "  ${WHITE}?flop${NC}     - Check floppy drive status/capacity."
         echo -e "  ${WHITE}?gath${NC}     - Calculate file sizes and bank weight."
         echo -e "  ${WHITE}?when${NC}     - Display creation/modification dates."
-        echo -e "  ${WHITE}del:(${NC}     - Access system burn protocols."
+        echo -e "  ${WHITE}del!${NC}      - Access system burn protocols."
         echo -e "  ${WHITE}?work${NC}     - Run system access diagnostics."
         echo -e "  ${WHITE}update${NC}    - Pull the latest version from GitHub."
         exit 0
@@ -313,7 +313,7 @@ case "$1" in
         exit 0
         ;;
 
-    "del:(")
+    "del!")
         echo -e "${RED}========================================${NC}"
         echo -e "${WHITE} BURN PROTOCOL INITIATED${NC}"
         echo -e "${RED}========================================${NC}"
