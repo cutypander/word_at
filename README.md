@@ -32,6 +32,14 @@ To be clear, word@ automatically places a limit on all floppy's to prevent corru
 if the sector health is lower, the limit increase to keep the floppy alive but to make
 it clear that the floppy is dying.
 
+How to install:
+
+1: git clone [https://github.com/cutypander/word_at.git](https://github.com/cutypander/word_at.git)
+
+2: cd word_at
+
+3: bash install.sh
+
 commands and uses:
 
 $ word@ [filename] - Standard mode:
