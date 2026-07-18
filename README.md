@@ -75,8 +75,7 @@ $ word@ ?flop - checks if a floppy is mounted, if there's space and reads the NA
 
 $ word@ ?gath - calculates the per file size and the total size within the wordbank
 
-$ word@ del:( [filename] - Permanently deletes the specified file from the wordbank.
-Harder to write on accident for a reason. Ya never know.
+$ word@ del! - Deletes file(s) with given options. Give's multiple options for deleting files.
 
 $ word@ ?when - Show's the filenames in order of when they were last edited. 
 
