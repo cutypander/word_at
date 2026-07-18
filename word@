@@ -50,6 +50,7 @@ case "$1" in
         echo -e "  ${WHITE}?when${NC}     - Display creation/modification dates."
         echo -e "  ${WHITE}del:(${NC}     - Permanently delete a file from bank."
         echo -e "  ${WHITE}?work${NC}     - Run system access diagnostics."
+        echo -e "  ${WHITE}update${NC}    - Pull the latest version from GitHub."
         exit 0
         ;;
 
@@ -205,7 +206,8 @@ case "$1" in
         fi
         exit 0
         ;;
-"?flop")
+
+    "?flop")
         echo -e "${ORANGE}========================================${NC}"
         echo -e "${WHITE} FLOPPY DRIVE DIAGNOSTICS${NC}"
         echo -e "${ORANGE}========================================${NC}"
@@ -286,6 +288,22 @@ case "$1" in
         ping -c 1 8.8.8.8 >/dev/null 2>&1 && echo -e "Network Access   : ${WHITE}[ONLINE]${NC}" || echo -e "Network Access   : ${RED}[OFFLINE]${NC}"
         exit 0
         ;;
+
+    "update")
+        echo -e "${ORANGE}========================================${NC}"
+        echo -e "${WHITE} CHECKING GITHUB FOR UPDATES...${NC}"
+        echo -e "${ORANGE}========================================${NC}"
+        
+        # Pull the raw code from your repository and overwrite the local binary
+        if sudo curl -sL "https://raw.githubusercontent.com/cutypander/word_at/main/word@" -o /usr/local/bin/word@; then
+            sudo chmod +x /usr/local/bin/word@
+            echo -e "${WHITE}word@ has been successfully updated to the latest version.${NC}"
+        else
+            echo -e "${RED}Error: Could not reach GitHub. Check your connection.${NC}"
+        fi
+        exit 0
+        ;;
+
     *)
         # Default behavior: Open or create file in Nano
         if [ -n "$1" ]; then
