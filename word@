@@ -44,11 +44,11 @@ case "$1" in
         echo -e "  ${WHITE}raw${NC}       - Raw Mode: Write directly to the terminal."
         echo -e "  ${WHITE}TTF${NC}       - Text To Floppy: Archive bank to disk."
         echo -e "  ${WHITE}init${NC}      - Format, scan, and stamp a new floppy."
-        echo -e "  ${WHITE}?scan${NC}     - Run a magnetic surface health check."
+        echo -e "  ${WHITE}?scan${NC}     - Run advanced scanner protocols."
         echo -e "  ${WHITE}?flop${NC}     - Check floppy drive status/capacity."
         echo -e "  ${WHITE}?gath${NC}     - Calculate file sizes and bank weight."
         echo -e "  ${WHITE}?when${NC}     - Display creation/modification dates."
-        echo -e "  ${WHITE}del:(${NC}     - Permanently delete a file from bank."
+        echo -e "  ${WHITE}del:(${NC}     - Access system burn protocols."
         echo -e "  ${WHITE}?work${NC}     - Run system access diagnostics."
         echo -e "  ${WHITE}update${NC}    - Pull the latest version from GitHub."
         exit 0
@@ -175,35 +175,94 @@ case "$1" in
                 cp "$FILE" "$FLOPPY_DIR/${NAME}.txt"
                 cp "$FILE" "$FLOPPY_DIR/${NAME}_BKP.txt"
                 
+                # Write file index to the ledger for the ?scan command to find later
+                if ! grep -q "DISK_ID: $CURRENT_ID | FILE: $BASENAME" "$LEDGER_FILE"; then
+                    echo "DISK_ID: $CURRENT_ID | DISK_NAME: $KNOWN_NAME | FILE: $BASENAME | DATE: $(date +%F)" >> "$LEDGER_FILE"
+                fi
+                
                 SAFE_SPACE=$((SAFE_SPACE - REQUIRED_SPACE))
-                echo -e "${WHITE}Archived & Duplicated: $BASENAME${NC}"
+                echo -e "${WHITE}Archived & Indexed: $BASENAME${NC}"
             else
                 echo -e "${RED}Skipped: $BASENAME (Exceeds remaining space)${NC}"
             fi
         done
-        echo -e "${ORANGE}TTF Transfer Complete.${NC}"
+        echo -e "${ORANGE}TTF Transfer & Ledger Index Complete.${NC}"
         exit 0
         ;;
 
     "?scan")
         echo -e "${ORANGE}========================================${NC}"
-        echo -e "${WHITE} INITIATING MAGNETIC SURFACE SCAN${NC}"
+        echo -e "${WHITE} ADVANCED SCANNER PROTOCOLS${NC}"
         echo -e "${ORANGE}========================================${NC}"
-        if [ -d "$FLOPPY_DIR" ]; then
-            DEVICE=$(df "$FLOPPY_DIR" | tail -1 | awk '{print $1}')
-            if [[ "$DEVICE" == /dev/* ]]; then
-                echo -e "${ORANGE}Targeting hardware: $DEVICE${NC}"
-                echo -e "${ORANGE}Listening for dead sectors. Please wait...${NC}"
-                echo "----------------------------------------"
-                sudo badblocks -v "$DEVICE"
-                echo "----------------------------------------"
-                echo -e "${WHITE}Scan complete.${NC}"
-            else
-                echo -e "${RED}Error: Could not isolate hardware path.${NC}"
-            fi
-        else
-            echo -e "${RED}Error: No floppy drive detected.${NC}"
-        fi
+        echo -e "  ${WHITE}1)${NC} Surface Scan (Check magnetic integrity)"
+        echo -e "  ${WHITE}2)${NC} Local Hunt   (Search Pi and move to Bank)"
+        echo -e "  ${WHITE}3)${NC} Ledger Scan  (Find a file's physical disk)"
+        echo -e "  ${WHITE}4)${NC} Auto-Execute (Run script from floppy)"
+        echo -e "${ORANGE}========================================${NC}"
+        read -p "Select protocol (1-4): " scan_choice
+
+        case "$scan_choice" in
+            1)
+                if [ -d "$FLOPPY_DIR" ]; then
+                    DEVICE=$(df "$FLOPPY_DIR" | tail -1 | awk '{print $1}')
+                    if [[ "$DEVICE" == /dev/* ]]; then
+                        echo -e "${ORANGE}Listening for dead sectors on $DEVICE...${NC}"
+                        sudo badblocks -v "$DEVICE"
+                        echo -e "${WHITE}Scan complete.${NC}"
+                    else
+                        echo -e "${RED}Error: Could not isolate hardware path.${NC}"
+                    fi
+                else
+                    echo -e "${RED}Error: No floppy drive detected.${NC}"
+                fi
+                ;;
+            2)
+                read -p "Enter exact filename to hunt: " hunt_target
+                echo -e "${ORANGE}Sweeping local system...${NC}"
+                # Searches the home directory to prevent scanning OS binaries
+                FOUND_PATH=$(find "$HOME" -type f -name "$hunt_target" 2>/dev/null | head -n 1)
+                
+                if [ -n "$FOUND_PATH" ]; then
+                    echo -e "${WHITE}Target acquired at: $FOUND_PATH${NC}"
+                    read -p "Import to WordBank? (Y/N): " import_choice
+                    if [[ "$import_choice" == "Y" || "$import_choice" == "y" ]]; then
+                        cp "$FOUND_PATH" "$BANK_DIR/"
+                        echo -e "${ORANGE}File secured in Bank.${NC}"
+                    fi
+                else
+                    echo -e "${RED}File not found on local system.${NC}"
+                fi
+                ;;
+            3)
+                read -p "Enter document name to locate: " doc_target
+                # This checks the ledger.
+                if grep -q "FILE: $doc_target" "$LEDGER_FILE"; then
+                    echo -e "${WHITE}File Location Data:${NC}"
+                    grep "FILE: $doc_target" "$LEDGER_FILE"
+                else
+                    echo -e "${RED}Document not found in physical archives.${NC}"
+                fi
+                ;;
+            4)
+                if [ -d "$FLOPPY_DIR" ]; then
+                    SCRIPT_FILE=$(ls -1 "$FLOPPY_DIR"/*.sh 2>/dev/null | head -n 1)
+                    if [ -n "$SCRIPT_FILE" ]; then
+                        echo -e "${WHITE}Executing $SCRIPT_FILE...${NC}"
+                        echo "----------------------------------------"
+                        bash "$SCRIPT_FILE"
+                        echo "----------------------------------------"
+                        echo -e "${ORANGE}Execution terminated.${NC}"
+                    else
+                        echo -e "${RED}No executable script found on floppy.${NC}"
+                    fi
+                else
+                    echo -e "${RED}Error: Floppy drive not detected.${NC}"
+                fi
+                ;;
+            *)
+                echo -e "${RED}Invalid protocol selected.${NC}"
+                ;;
+        esac
         exit 0
         ;;
 
@@ -255,19 +314,81 @@ case "$1" in
         ;;
 
     "del:(")
-        # Check for silent argument bypass
-        if [ -n "$2" ]; then
-            target="$2"
-        else
-            read -p "Enter document name to burn: " target
-        fi
-        
-        if [ -f "$BANK_DIR/$target.txt" ]; then
-            rm -f "$BANK_DIR/$target.txt"
-            echo -e "${RED}Document '$target.txt' has been permanently erased.${NC}"
-        else
-            echo -e "${ORANGE}Document '$target.txt' not found in WordBank.${NC}"
-        fi
+        echo -e "${RED}========================================${NC}"
+        echo -e "${WHITE} BURN PROTOCOL INITIATED${NC}"
+        echo -e "${RED}========================================${NC}"
+        echo -e "  ${WHITE}1)${NC} Burn specific document"
+        echo -e "  ${WHITE}2)${NC} Purge entire local WordBank"
+        echo -e "  ${WHITE}3)${NC} Wipe inserted Floppy Disk"
+        echo -e "  ${WHITE}4)${NC} TOTAL RESET (Ledger & All Floppies)"
+        echo -e "${RED}========================================${NC}"
+        read -p "Select protocol (1-4): " burn_choice
+
+        case "$burn_choice" in
+            1)
+                read -p "Enter document name to burn: " target
+                if [ -f "$BANK_DIR/$target.txt" ]; then
+                    rm -f "$BANK_DIR/$target.txt"
+                    echo -e "${RED}Document '$target.txt' permanently erased.${NC}"
+                else
+                    echo -e "${ORANGE}Document not found in WordBank.${NC}"
+                fi
+                ;;
+            2)
+                read -p "WARNING: Purge local Bank? (Y/N): " confirm_bank
+                if [[ "$confirm_bank" == "Y" || "$confirm_bank" == "y" ]]; then
+                    rm -f "$BANK_DIR"/*.txt
+                    echo -e "${RED}WordBank purged.${NC}"
+                fi
+                ;;
+            3)
+                if mount | grep -q "$FLOPPY_DIR"; then
+                    read -p "WARNING: Wipe all data on inserted floppy? (Y/N): " confirm_flop
+                    if [[ "$confirm_flop" == "Y" || "$confirm_flop" == "y" ]]; then
+                        sudo rm -rf "$FLOPPY_DIR"/*
+                        echo -e "${RED}Physical disk wiped.${NC}"
+                    fi
+                else
+                    echo -e "${RED}No floppy mounted.${NC}"
+                fi
+                ;;
+            4)
+                echo -e "${RED}CRITICAL WARNING: TOTAL SYSTEM RESET.${NC}"
+                read -p "Are you absolutely sure? (Y/N): " confirm_reset
+                if [[ "$confirm_reset" == "Y" || "$confirm_reset" == "y" ]]; then
+                    
+                    # Extract list of known disks from the ledger
+                    KNOWN_DISKS=$(awk -F'NAME: ' '{print $2}' "$LEDGER_FILE" | awk '{print $1}')
+                    DISK_COUNT=$(echo "$KNOWN_DISKS" | wc -w)
+                    
+                    echo -e "${ORANGE}Ledger contains $DISK_COUNT known physical disks.${NC}"
+                    
+                    for DISK in $KNOWN_DISKS; do
+                        echo -e "\n${WHITE}Target Disk: $DISK${NC}"
+                        read -p "Insert disk and press Enter (or type 'skip'): " action
+                        
+                        if [[ "$action" != "skip" ]]; then
+                            if mount | grep -q "$FLOPPY_DIR"; then
+                                sudo rm -rf "$FLOPPY_DIR"/*
+                                echo -e "${RED}Disk $DISK wiped.${NC}"
+                            else
+                                echo -e "${ORANGE}Drive not ready. Skipping...${NC}"
+                            fi
+                        else
+                            echo -e "${ORANGE}Skipping $DISK...${NC}"
+                        fi
+                    done
+                    
+                    # Clear Bank and Ledger
+                    rm -f "$BANK_DIR"/*.txt
+                    > "$LEDGER_FILE"
+                    echo -e "${RED}System Reset Complete. The slate is clean.${NC}"
+                fi
+                ;;
+            *)
+                echo -e "${ORANGE}Burn protocol aborted.${NC}"
+                ;;
+        esac
         exit 0
         ;;
 
