@@ -205,7 +205,87 @@ case "$1" in
         fi
         exit 0
         ;;
+"?flop")
+        echo -e "${ORANGE}========================================${NC}"
+        echo -e "${WHITE} FLOPPY DRIVE DIAGNOSTICS${NC}"
+        echo -e "${ORANGE}========================================${NC}"
+        if mount | grep -q "$FLOPPY_DIR"; then
+            df -h "$FLOPPY_DIR" | awk 'NR==1 || NR==2'
+            echo "----------------------------------------"
+            if [ -f "$FLOPPY_DIR/.disk_id" ]; then
+                CURRENT_ID=$(cat "$FLOPPY_DIR/.disk_id")
+                KNOWN_NAME=$(grep "ID: $CURRENT_ID" "$LEDGER_FILE" | awk -F'NAME: ' '{print $2}' | awk '{print $1}')
+                echo -e "${WHITE}Mounted Disk: $KNOWN_NAME ($CURRENT_ID)${NC}"
+            else
+                echo -e "${RED}Unrecognized or unformatted disk.${NC}"
+            fi
+        else
+            echo -e "${RED}No floppy mounted at $FLOPPY_DIR.${NC}"
+        fi
+        exit 0
+        ;;
 
+    "?gath")
+        echo -e "${ORANGE}========================================${NC}"
+        echo -e "${WHITE} WORDBANK METRICS${NC}"
+        echo -e "${ORANGE}========================================${NC}"
+        FILE_COUNT=$(ls -1q "$BANK_DIR"/*.txt 2>/dev/null | wc -l)
+        if [ "$FILE_COUNT" -eq 0 ]; then
+            echo -e "${ORANGE}The WordBank is currently empty.${NC}"
+            exit 0
+        fi
+        BANK_SIZE=$(du -sh "$BANK_DIR" | awk '{print $1}')
+        echo -e "${WHITE}Total Documents : $FILE_COUNT${NC}"
+        echo -e "${WHITE}Total Weight    : $BANK_SIZE${NC}"
+        echo -e "${ORANGE}----------------------------------------${NC}"
+        # Print file sizes cleanly without showing the full folder path
+        ls -lh "$BANK_DIR"/*.txt 2>/dev/null | awk '{print $5 "\t" $9}' | sed "s|$BANK_DIR/||g"
+        exit 0
+        ;;
+
+    "?when")
+        echo -e "${ORANGE}========================================${NC}"
+        echo -e "${WHITE} DOCUMENT TIMESTAMPS (LATEST FIRST)${NC}"
+        echo -e "${ORANGE}========================================${NC}"
+        # Lists files sorted by time, formatting the date nicely
+        ls -lt --time-style=+"%Y-%m-%d %H:%M" "$BANK_DIR"/*.txt 2>/dev/null | awk '{print $6 " " $7 "\t" $8}' | sed "s|$BANK_DIR/||g"
+        exit 0
+        ;;
+
+    "del:(")
+        # Check for silent argument bypass
+        if [ -n "$2" ]; then
+            target="$2"
+        else
+            read -p "Enter document name to burn: " target
+        fi
+        
+        if [ -f "$BANK_DIR/$target.txt" ]; then
+            rm -f "$BANK_DIR/$target.txt"
+            echo -e "${RED}Document '$target.txt' has been permanently erased.${NC}"
+        else
+            echo -e "${ORANGE}Document '$target.txt' not found in WordBank.${NC}"
+        fi
+        exit 0
+        ;;
+
+    "?work")
+        echo -e "${ORANGE}========================================${NC}"
+        echo -e "${WHITE} SYSTEM ACCESS DIAGNOSTICS${NC}"
+        echo -e "${ORANGE}========================================${NC}"
+        [ -w "$BANK_DIR" ] && echo -e "Bank Directory   : ${WHITE}[OK]${NC}" || echo -e "Bank Directory   : ${RED}[FAIL]${NC}"
+        [ -w "$LEDGER_FILE" ] && echo -e "Ledger Access    : ${WHITE}[OK]${NC}" || echo -e "Ledger Access    : ${RED}[FAIL]${NC}"
+        
+        if mount | grep -q "$FLOPPY_DIR"; then
+            [ -w "$FLOPPY_DIR" ] && echo -e "Floppy Write     : ${WHITE}[OK]${NC}" || echo -e "Floppy Write     : ${RED}[READ-ONLY]${NC}"
+        else
+            echo -e "Floppy Write     : ${ORANGE}[NOT MOUNTED]${NC}"
+        fi
+        
+        # Quick ping to Google DNS to check if the cyberdeck is online
+        ping -c 1 8.8.8.8 >/dev/null 2>&1 && echo -e "Network Access   : ${WHITE}[ONLINE]${NC}" || echo -e "Network Access   : ${RED}[OFFLINE]${NC}"
+        exit 0
+        ;;
     *)
         # Default behavior: Open or create file in Nano
         if [ -n "$1" ]; then
