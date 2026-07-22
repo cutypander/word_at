@@ -33,6 +33,15 @@ case "$1" in
         echo -e "${ORANGE}This is a distraction-free drafting environment."
         echo -e "Everything you write is secured in a local bank"
         echo -e "before being archived to physical floppy disks.${NC}\n"
+        
+        # --- NEW HARDWARE SCANNER ---
+        if mount | grep -q "$FLOPPY_DIR"; then
+            echo -e "  Hardware Status : ${WHITE}[FLOPPY DRIVE ACTIVE]${NC}"
+        else
+            echo -e "  Hardware Status : ${RED}[NO DISK MOUNTED]${NC}"
+        fi
+        echo ""
+        
         echo -e "${ORANGE}To see the available commands, type: ${WHITE}word@ help!${NC}"
         echo -e "${ORANGE}========================================${NC}"
         exit 0
@@ -40,15 +49,17 @@ case "$1" in
 
     "help!")
         echo -e "${WHITE}COMMAND DIRECTORY:${NC}"
-        echo -e "  ${WHITE}[no flag]${NC} - Standard Mode: Open a file in Nano."
+        echo -e "  ${WHITE}[no flag]${NC} - Standard Mode: Open a file (Nano/Desktop)."
         echo -e "  ${WHITE}raw${NC}       - Raw Mode: Write directly to the terminal."
-        echo -e "  ${WHITE}TTF${NC}       - Text To Floppy: Archive bank to disk."
+        echo -e "  ${WHITE}tape${NC}      - Field Recorder: Record MP3 audio to Bank."
+        echo -e "  ${WHITE}TTF${NC}       - Text To Floppy: Archive text bank to disk."
+        echo -e "  ${WHITE}STF${NC}       - Sound To Floppy: Archive audio with compression."
         echo -e "  ${WHITE}init${NC}      - Format, scan, and stamp a new floppy."
-        echo -e "  ${WHITE}?scan${NC}     - Run advanced scanner protocols."
+        echo -e "  ${WHITE}?scan${NC}     - Run advanced scanner protocols & auto-run."
         echo -e "  ${WHITE}?flop${NC}     - Check floppy drive status/capacity."
         echo -e "  ${WHITE}?gath${NC}     - Calculate file sizes and bank weight."
         echo -e "  ${WHITE}?when${NC}     - Display creation/modification dates."
-        echo -e "  ${WHITE}view${NC}      - Stream a document to the terminal in 16-bit."
+        echo -e "  ${WHITE}view${NC}      - Stream text (16-bit) or playback audio."
         echo -e "  ${WHITE}del!${NC}      - Access system burn protocols."
         echo -e "  ${WHITE}?work${NC}     - Run system access diagnostics."
         echo -e "  ${WHITE}update${NC}    - Pull the latest version from GitHub."
@@ -56,7 +67,6 @@ case "$1" in
         ;;
 
     "raw")
-        # Check for silent argument bypass
         if [ -n "$2" ]; then
             filename="$2"
         else
@@ -89,6 +99,34 @@ case "$1" in
         done
         ;;
 
+    "tape")
+        read -p "Enter a name for this recording: " rec_name
+        echo -e "${ORANGE}========================================${NC}"
+        echo -e "${WHITE} LIVE AUDIO RECORDING${NC}"
+        echo -e "${ORANGE} Press [ENTER] to stop recording.${NC}"
+        echo -e "${ORANGE}========================================${NC}"
+        
+        TEMP_WAV="$BANK_DIR/.$rec_name.tmp.wav"
+        FINAL_MP3="$BANK_DIR/$rec_name.mp3"
+        
+        # Start recording in the background
+        arecord -f cd "$TEMP_WAV" -q &
+        RECORD_PID=$!
+        
+        # Wait for the user to hit Enter
+        read -r
+        kill $RECORD_PID 2>/dev/null
+        
+        echo -e "${WHITE}Processing audio...${NC}"
+        if ffmpeg -y -i "$TEMP_WAV" -qscale:a 2 "$FINAL_MP3" 2>/dev/null; then
+            rm -f "$TEMP_WAV"
+            echo -e "${ORANGE}Recording saved to WordBank as $rec_name.mp3${NC}"
+        else
+            echo -e "${RED}Error: ffmpeg is missing. Please run: sudo apt install ffmpeg${NC}"
+        fi
+        exit 0
+        ;;
+
     "init")
         if [ ! -d "$FLOPPY_DIR" ]; then
             echo -e "${RED}Error: No disk inserted to initialize.${NC}"
@@ -114,7 +152,6 @@ case "$1" in
         
         echo -e "${ORANGE}Running deep magnetic scan (This will take a moment)...${NC}"
         DEVICE=$(df "$FLOPPY_DIR" | tail -1 | awk '{print $1}')
-        
         BAD_COUNT=$(sudo badblocks -q "$DEVICE" | wc -l)
         
         if [ "$BAD_COUNT" -gt 0 ]; then
@@ -129,27 +166,18 @@ case "$1" in
         ;;
 
     "TTF")
-        echo -e "${WHITE}Initiating TTF Archive Protocol...${NC}"
+        echo -e "${WHITE}Initiating Text-to-Floppy Archive Protocol...${NC}"
         if [ ! -d "$FLOPPY_DIR" ]; then
             echo -e "${RED}Error: Floppy drive not detected.${NC}"
             exit 1
         fi
 
-        if [ ! -f "$FLOPPY_DIR/.disk_id" ]; then
-            echo -e "${ORANGE}Unrecognized disk detected. Running rapid-init...${NC}"
-            NEW_ID=$(tr -dc A-Z0-9 </dev/urandom | head -c 6)
-            DISK_NAME=${NATO[$RANDOM % 26]}
-            
-            if grep -q "NAME: $DISK_NAME" "$LEDGER_FILE"; then
-                DISK_NAME="$DISK_NAME-${NATO[$RANDOM % 26]}"
-            fi
-            
-            echo "$NEW_ID" > "$FLOPPY_DIR/.disk_id"
-            echo "ID: $NEW_ID | NAME: $DISK_NAME | BAD_BLOCKS: 0" >> "$LEDGER_FILE"
-            echo -e "${WHITE}Rapid-init complete. Disk named: $DISK_NAME${NC}"
+        CURRENT_ID=$(cat "$FLOPPY_DIR/.disk_id" 2>/dev/null)
+        if [ -z "$CURRENT_ID" ]; then
+            echo -e "${RED}Disk is uninitialized. Run 'word@ init' first.${NC}"
+            exit 1
         fi
 
-        CURRENT_ID=$(cat "$FLOPPY_DIR/.disk_id")
         KNOWN_NAME=$(grep "ID: $CURRENT_ID" "$LEDGER_FILE" | awk -F'NAME: ' '{print $2}' | awk '{print $1}')
         BAD_BLOCKS=$(grep "ID: $CURRENT_ID" "$LEDGER_FILE" | awk -F'BAD_BLOCKS: ' '{print $2}' | awk '{print $1}')
         
@@ -158,14 +186,8 @@ case "$1" in
         FREE_SPACE=$(df -k "$FLOPPY_DIR" | awk 'NR==2 {print $4}')
         SAFE_SPACE=$((FREE_SPACE - BAD_BLOCKS - SAFE_OVERHEAD))
 
-        if [ "$SAFE_SPACE" -le 0 ]; then
-            echo -e "${RED}Error: Floppy is full or overhead limit reached.${NC}"
-            exit 1
-        fi
-
         for FILE in "$BANK_DIR"/*.txt; do
             [ -e "$FILE" ] || continue
-
             FILE_SIZE=$(du -k "$FILE" | cut -f1)
             REQUIRED_SPACE=$((FILE_SIZE * 2))
 
@@ -176,7 +198,6 @@ case "$1" in
                 cp "$FILE" "$FLOPPY_DIR/${NAME}.txt"
                 cp "$FILE" "$FLOPPY_DIR/${NAME}_BKP.txt"
                 
-                # Write file index to the ledger for the ?scan command to find later
                 if ! grep -q "DISK_ID: $CURRENT_ID | FILE: $BASENAME" "$LEDGER_FILE"; then
                     echo "DISK_ID: $CURRENT_ID | DISK_NAME: $KNOWN_NAME | FILE: $BASENAME | DATE: $(date +%F)" >> "$LEDGER_FILE"
                 fi
@@ -187,7 +208,96 @@ case "$1" in
                 echo -e "${RED}Skipped: $BASENAME (Exceeds remaining space)${NC}"
             fi
         done
-        echo -e "${ORANGE}TTF Transfer & Ledger Index Complete.${NC}"
+        echo -e "${ORANGE}TTF Transfer Complete.${NC}"
+        exit 0
+        ;;
+
+    "STF")
+        echo -e "${ORANGE}========================================${NC}"
+        echo -e "${WHITE} SOUND TO FLOPPY ARCHIVE PROTOCOL${NC}"
+        echo -e "${ORANGE}========================================${NC}"
+        
+        if [ ! -d "$FLOPPY_DIR" ]; then
+            echo -e "${RED}Error: Floppy drive not detected.${NC}"
+            exit 1
+        fi
+        
+        # 1. Build Uppercase Grid Menu
+        shopt -s nullglob
+        files=("$BANK_DIR"/*.mp3)
+        shopt -u nullglob
+        
+        if [ ${#files[@]} -eq 0 ]; then
+            echo -e "${RED}No audio files found in WordBank.${NC}"
+            exit 1
+        fi
+
+        i=1
+        for f in "${files[@]}"; do
+            basename=$(basename "$f" | tr '[:lower:]' '[:upper:]')
+            echo -e "  ${WHITE}$i)${NC} $basename"
+            ((i++))
+        done
+        
+        read -p "Select file number: " choice
+        if ! [[ "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt "${#files[@]}" ]; then
+            echo -e "${RED}Invalid selection.${NC}"
+            exit 1
+        fi
+        
+        SELECTED_FILE="${files[$((choice-1))]}"
+        BASENAME=$(basename "$SELECTED_FILE")
+        
+        echo -e "\n${ORANGE}Select Compression Profile:${NC}"
+        echo -e "  1) Short    (32kbps - High Quality)"
+        echo -e "  2) Standard (16kbps - Balanced)"
+        echo -e "  3) Long     (8kbps  - Max Length)"
+        echo -e "  4) Auto     (Fit perfectly to disk)"
+        read -p "Choice (1-4): " q_choice
+
+        FREE_SPACE_KB=$(df -k "$FLOPPY_DIR" | awk 'NR==2 {print $4}')
+        if [ "$FREE_SPACE_KB" -le 0 ]; then
+            echo -e "${RED}Error: Floppy is completely full.${NC}"
+            exit 1
+        fi
+
+        TARGET_BITRATE="16k" 
+        case "$q_choice" in
+            1) TARGET_BITRATE="32k" ;;
+            2) TARGET_BITRATE="16k" ;;
+            3) TARGET_BITRATE="8k" ;;
+            4) 
+                DURATION=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$SELECTED_FILE" | awk '{print int($1)}')
+                if [ "$DURATION" -le 0 ]; then DURATION=1; fi
+                # Math: (KB * 8) / Seconds = Kbps. Use 95% safety margin.
+                MAX_BITRATE=$(( (FREE_SPACE_KB * 8) / DURATION ))
+                SAFE_BITRATE=$(( MAX_BITRATE * 95 / 100 ))
+                
+                if [ "$SAFE_BITRATE" -lt 6 ]; then
+                    echo -e "${RED}WARNING: File is too long. Audio will be heavily degraded.${NC}"
+                    TARGET_BITRATE="6k"
+                elif [ "$SAFE_BITRATE" -gt 64 ]; then
+                    TARGET_BITRATE="64k" 
+                else
+                    TARGET_BITRATE="${SAFE_BITRATE}k"
+                fi
+                echo -e "${ORANGE}Auto-calculated Bitrate: $TARGET_BITRATE${NC}"
+                ;;
+            *) echo -e "${RED}Invalid profile. Defaulting to 16kbps.${NC}" ;;
+        esac
+
+        echo -e "${WHITE}Compressing & Transferring...${NC}"
+        if ffmpeg -y -i "$SELECTED_FILE" -c:a libmp3lame -b:a "$TARGET_BITRATE" -ac 1 -ar 16000 "$FLOPPY_DIR/$BASENAME" 2>/dev/null; then
+            echo -e "${ORANGE}Audio secured on physical disk.${NC}"
+            
+            read -p "Set this track to Auto-Run on insert? (Y/N): " autorun_choice
+            if [[ "$autorun_choice" == "Y" || "$autorun_choice" == "y" ]]; then
+                echo "$BASENAME" > "$FLOPPY_DIR/.autorun"
+                echo -e "${WHITE}Auto-Run protocol established.${NC}"
+            fi
+        else
+            echo -e "${RED}Error: Transfer failed. Is ffmpeg installed?${NC}"
+        fi
         exit 0
         ;;
 
@@ -198,29 +308,19 @@ case "$1" in
         echo -e "  ${WHITE}1)${NC} Surface Scan (Check magnetic integrity)"
         echo -e "  ${WHITE}2)${NC} Local Hunt   (Search Pi and move to Bank)"
         echo -e "  ${WHITE}3)${NC} Ledger Scan  (Find a file's physical disk)"
-        echo -e "  ${WHITE}4)${NC} Auto-Execute (Run script from floppy)"
+        echo -e "  ${WHITE}4)${NC} Auto-Execute (Trigger .autorun or script)"
         echo -e "${ORANGE}========================================${NC}"
         read -p "Select protocol (1-4): " scan_choice
 
         case "$scan_choice" in
             1)
-                if [ -d "$FLOPPY_DIR" ]; then
-                    DEVICE=$(df "$FLOPPY_DIR" | tail -1 | awk '{print $1}')
-                    if [[ "$DEVICE" == /dev/* ]]; then
-                        echo -e "${ORANGE}Listening for dead sectors on $DEVICE...${NC}"
-                        sudo badblocks -v "$DEVICE"
-                        echo -e "${WHITE}Scan complete.${NC}"
-                    else
-                        echo -e "${RED}Error: Could not isolate hardware path.${NC}"
-                    fi
-                else
-                    echo -e "${RED}Error: No floppy drive detected.${NC}"
-                fi
+                DEVICE=$(df "$FLOPPY_DIR" | tail -1 | awk '{print $1}')
+                echo -e "${ORANGE}Listening for dead sectors on $DEVICE...${NC}"
+                sudo badblocks -v "$DEVICE"
                 ;;
             2)
                 read -p "Enter exact filename to hunt: " hunt_target
                 echo -e "${ORANGE}Sweeping local system...${NC}"
-                # Searches the home directory to prevent scanning OS binaries
                 FOUND_PATH=$(find "$HOME" -type f -name "$hunt_target" 2>/dev/null | head -n 1)
                 
                 if [ -n "$FOUND_PATH" ]; then
@@ -228,7 +328,6 @@ case "$1" in
                     read -p "Import to WordBank? (Y/N): " import_choice
                     if [[ "$import_choice" == "Y" || "$import_choice" == "y" ]]; then
                         cp "$FOUND_PATH" "$BANK_DIR/"
-                        echo -e "${ORANGE}File secured in Bank.${NC}"
                     fi
                 else
                     echo -e "${RED}File not found on local system.${NC}"
@@ -236,9 +335,7 @@ case "$1" in
                 ;;
             3)
                 read -p "Enter document name to locate: " doc_target
-                # This checks the ledger.
                 if grep -q "FILE: $doc_target" "$LEDGER_FILE"; then
-                    echo -e "${WHITE}File Location Data:${NC}"
                     grep "FILE: $doc_target" "$LEDGER_FILE"
                 else
                     echo -e "${RED}Document not found in physical archives.${NC}"
@@ -246,41 +343,64 @@ case "$1" in
                 ;;
             4)
                 if [ -d "$FLOPPY_DIR" ]; then
+                    # 1. Check for Audio Autorun
+                    if [ -f "$FLOPPY_DIR/.autorun" ]; then
+                        AUTORUN_FILE=$(cat "$FLOPPY_DIR/.autorun")
+                        if [ -f "$FLOPPY_DIR/$AUTORUN_FILE" ]; then
+                            echo -e "${WHITE}Auto-Run triggered: $AUTORUN_FILE${NC}"
+                            mpg123 -q "$FLOPPY_DIR/$AUTORUN_FILE" 2>/dev/null || echo -e "${RED}Error: mpg123 player missing.${NC}"
+                            exit 0
+                        fi
+                    fi
+                    
+                    # 2. Check for Shell Script
                     SCRIPT_FILE=$(ls -1 "$FLOPPY_DIR"/*.sh 2>/dev/null | head -n 1)
                     if [ -n "$SCRIPT_FILE" ]; then
                         echo -e "${WHITE}Executing $SCRIPT_FILE...${NC}"
-                        echo "----------------------------------------"
                         bash "$SCRIPT_FILE"
-                        echo "----------------------------------------"
-                        echo -e "${ORANGE}Execution terminated.${NC}"
                     else
-                        echo -e "${RED}No executable script found on floppy.${NC}"
+                        echo -e "${RED}No auto-run media or scripts found on floppy.${NC}"
                     fi
-                else
-                    echo -e "${RED}Error: Floppy drive not detected.${NC}"
                 fi
-                ;;
-            *)
-                echo -e "${RED}Invalid protocol selected.${NC}"
                 ;;
         esac
         exit 0
         ;;
 
+    "view")
+        read -p "Enter document or audio name to view/play: " target
+        
+        if [ -f "$BANK_DIR/$target.txt" ]; then
+            echo -e "${ORANGE}========================================${NC}"
+            echo -e "${WHITE} STREAMING DATA: $target.txt${NC}"
+            echo -e "${ORANGE}========================================${NC}"
+            echo -e "${WHITE}"
+            
+            while IFS= read -r line; do
+                for (( i=0; i<${#line}; i++ )); do
+                    echo -n "${line:$i:1}"
+                    sleep 0.02
+                done
+                echo ""
+            done < "$BANK_DIR/$target.txt"
+            
+            echo -e "${NC}"
+            echo -e "${ORANGE}========================================${NC}"
+            
+        elif [ -f "$BANK_DIR/$target.mp3" ]; then
+            echo -e "${ORANGE}========================================${NC}"
+            echo -e "${WHITE} PLAYING AUDIO: $target.mp3${NC}"
+            echo -e "${ORANGE}========================================${NC}"
+            mpg123 -q "$BANK_DIR/$target.mp3" 2>/dev/null || echo -e "${RED}Error: mpg123 is missing. Please run: sudo apt install mpg123${NC}"
+        else
+            echo -e "${RED}Target '$target' not found in WordBank.${NC}"
+        fi
+        exit 0
+        ;;
+
     "?flop")
-        echo -e "${ORANGE}========================================${NC}"
-        echo -e "${WHITE} FLOPPY DRIVE DIAGNOSTICS${NC}"
-        echo -e "${ORANGE}========================================${NC}"
         if mount | grep -q "$FLOPPY_DIR"; then
             df -h "$FLOPPY_DIR" | awk 'NR==1 || NR==2'
-            echo "----------------------------------------"
-            if [ -f "$FLOPPY_DIR/.disk_id" ]; then
-                CURRENT_ID=$(cat "$FLOPPY_DIR/.disk_id")
-                KNOWN_NAME=$(grep "ID: $CURRENT_ID" "$LEDGER_FILE" | awk -F'NAME: ' '{print $2}' | awk '{print $1}')
-                echo -e "${WHITE}Mounted Disk: $KNOWN_NAME ($CURRENT_ID)${NC}"
-            else
-                echo -e "${RED}Unrecognized or unformatted disk.${NC}"
-            fi
         else
             echo -e "${RED}No floppy mounted at $FLOPPY_DIR.${NC}"
         fi
@@ -288,64 +408,20 @@ case "$1" in
         ;;
 
     "?gath")
-        echo -e "${ORANGE}========================================${NC}"
-        echo -e "${WHITE} WORDBANK METRICS${NC}"
-        echo -e "${ORANGE}========================================${NC}"
-        FILE_COUNT=$(ls -1q "$BANK_DIR"/*.txt 2>/dev/null | wc -l)
+        FILE_COUNT=$(ls -1q "$BANK_DIR"/*.txt "$BANK_DIR"/*.mp3 2>/dev/null | wc -l)
         if [ "$FILE_COUNT" -eq 0 ]; then
             echo -e "${ORANGE}The WordBank is currently empty.${NC}"
             exit 0
         fi
         BANK_SIZE=$(du -sh "$BANK_DIR" | awk '{print $1}')
-        echo -e "${WHITE}Total Documents : $FILE_COUNT${NC}"
-        echo -e "${WHITE}Total Weight    : $BANK_SIZE${NC}"
-        echo -e "${ORANGE}----------------------------------------${NC}"
-        # Print file sizes cleanly without showing the full folder path
-        ls -lh "$BANK_DIR"/*.txt 2>/dev/null | awk '{print $5 "\t" $9}' | sed "s|$BANK_DIR/||g"
+        echo -e "${WHITE}Total Files  : $FILE_COUNT${NC}"
+        echo -e "${WHITE}Total Weight : $BANK_SIZE${NC}"
+        ls -lh "$BANK_DIR" 2>/dev/null | awk '{print $5 "\t" $9}'
         exit 0
         ;;
 
     "?when")
-        echo -e "${ORANGE}========================================${NC}"
-        echo -e "${WHITE} DOCUMENT TIMESTAMPS (LATEST FIRST)${NC}"
-        echo -e "${ORANGE}========================================${NC}"
-        # Lists files sorted by time, formatting the date nicely
-        ls -lt --time-style=+"%Y-%m-%d %H:%M" "$BANK_DIR"/*.txt 2>/dev/null | awk '{print $6 " " $7 "\t" $8}' | sed "s|$BANK_DIR/||g"
-        exit 0
-        ;;
-
-    "view")
-        # Check if a filename was provided, otherwise ask for it
-        if [ -n "$2" ]; then
-            target="$2"
-        else
-            read -p "Enter document name to view: " target
-        fi
-        
-        FILE_PATH="$BANK_DIR/$target.txt"
-        
-        if [ -f "$FILE_PATH" ]; then
-            echo -e "${ORANGE}========================================${NC}"
-            echo -e "${WHITE} STREAMING DATA: $target.txt${NC}"
-            echo -e "${ORANGE}========================================${NC}"
-            echo -e "${WHITE}" # Set the text color for the document
-            
-            # The 16-bit Typewriter Loop
-            while IFS= read -r line; do
-                # Iterate through the line character by character
-                for (( i=0; i<${#line}; i++ )); do
-                    echo -n "${line:$i:1}"
-                    sleep 0.02 # This creates the delay
-                done
-                echo "" # Add the carriage return at the end of each line
-            done < "$FILE_PATH"
-            
-            echo -e "${NC}" # Reset the color back to normal
-            echo -e "${ORANGE}========================================${NC}"
-            echo -e "${WHITE} END OF STREAM${NC}"
-        else
-            echo -e "${RED}Document '$target.txt' not found in WordBank.${NC}"
-        fi
+        ls -lt --time-style=+"%Y-%m-%d %H:%M" "$BANK_DIR" 2>/dev/null | awk '{print $6 " " $7 "\t" $8}'
         exit 0
         ;;
 
@@ -353,122 +429,58 @@ case "$1" in
         echo -e "${RED}========================================${NC}"
         echo -e "${WHITE} BURN PROTOCOL INITIATED${NC}"
         echo -e "${RED}========================================${NC}"
-        echo -e "  ${WHITE}1)${NC} Burn specific document"
-        echo -e "  ${WHITE}2)${NC} Purge entire local WordBank"
-        echo -e "  ${WHITE}3)${NC} Wipe inserted Floppy Disk"
-        echo -e "  ${WHITE}4)${NC} TOTAL RESET (Ledger & All Floppies)"
-        echo -e "${RED}========================================${NC}"
-        read -p "Select protocol (1-4): " burn_choice
+        read -p "Select protocol (1=File, 2=Bank, 3=Floppy, 4=Reset): " burn_choice
 
         case "$burn_choice" in
             1)
-                read -p "Enter document name to burn: " target
-                if [ -f "$BANK_DIR/$target.txt" ]; then
-                    rm -f "$BANK_DIR/$target.txt"
-                    echo -e "${RED}Document '$target.txt' permanently erased.${NC}"
-                else
-                    echo -e "${ORANGE}Document not found in WordBank.${NC}"
-                fi
+                read -p "Enter full filename to burn (e.g. story.txt): " target
+                rm -f "$BANK_DIR/$target" && echo -e "${RED}Erased.${NC}" || echo -e "${ORANGE}Not found.${NC}"
                 ;;
             2)
-                read -p "WARNING: Purge local Bank? (Y/N): " confirm_bank
-                if [[ "$confirm_bank" == "Y" || "$confirm_bank" == "y" ]]; then
-                    rm -f "$BANK_DIR"/*.txt
-                    echo -e "${RED}WordBank purged.${NC}"
-                fi
+                rm -f "$BANK_DIR"/* && echo -e "${RED}WordBank purged.${NC}"
                 ;;
             3)
-                if mount | grep -q "$FLOPPY_DIR"; then
-                    read -p "WARNING: Wipe all data on inserted floppy? (Y/N): " confirm_flop
-                    if [[ "$confirm_flop" == "Y" || "$confirm_flop" == "y" ]]; then
-                        sudo rm -rf "$FLOPPY_DIR"/*
-                        echo -e "${RED}Physical disk wiped.${NC}"
-                    fi
-                else
-                    echo -e "${RED}No floppy mounted.${NC}"
-                fi
+                sudo rm -rf "$FLOPPY_DIR"/* && echo -e "${RED}Physical disk wiped.${NC}"
                 ;;
             4)
-                echo -e "${RED}CRITICAL WARNING: TOTAL SYSTEM RESET.${NC}"
-                read -p "Are you absolutely sure? (Y/N): " confirm_reset
-                if [[ "$confirm_reset" == "Y" || "$confirm_reset" == "y" ]]; then
-                    
-                    # Extract list of known disks from the ledger
-                    KNOWN_DISKS=$(awk -F'NAME: ' '{print $2}' "$LEDGER_FILE" | awk '{print $1}')
-                    DISK_COUNT=$(echo "$KNOWN_DISKS" | wc -w)
-                    
-                    echo -e "${ORANGE}Ledger contains $DISK_COUNT known physical disks.${NC}"
-                    
-                    for DISK in $KNOWN_DISKS; do
-                        echo -e "\n${WHITE}Target Disk: $DISK${NC}"
-                        read -p "Insert disk and press Enter (or type 'skip'): " action
-                        
-                        if [[ "$action" != "skip" ]]; then
-                            if mount | grep -q "$FLOPPY_DIR"; then
-                                sudo rm -rf "$FLOPPY_DIR"/*
-                                echo -e "${RED}Disk $DISK wiped.${NC}"
-                            else
-                                echo -e "${ORANGE}Drive not ready. Skipping...${NC}"
-                            fi
-                        else
-                            echo -e "${ORANGE}Skipping $DISK...${NC}"
-                        fi
-                    done
-                    
-                    # Clear Bank and Ledger
-                    rm -f "$BANK_DIR"/*.txt
-                    > "$LEDGER_FILE"
-                    echo -e "${RED}System Reset Complete. The slate is clean.${NC}"
-                fi
-                ;;
-            *)
-                echo -e "${ORANGE}Burn protocol aborted.${NC}"
+                > "$LEDGER_FILE"
+                rm -f "$BANK_DIR"/*
+                echo -e "${RED}System Reset Complete.${NC}"
                 ;;
         esac
         exit 0
         ;;
 
     "?work")
-        echo -e "${ORANGE}========================================${NC}"
-        echo -e "${WHITE} SYSTEM ACCESS DIAGNOSTICS${NC}"
-        echo -e "${ORANGE}========================================${NC}"
         [ -w "$BANK_DIR" ] && echo -e "Bank Directory   : ${WHITE}[OK]${NC}" || echo -e "Bank Directory   : ${RED}[FAIL]${NC}"
-        [ -w "$LEDGER_FILE" ] && echo -e "Ledger Access    : ${WHITE}[OK]${NC}" || echo -e "Ledger Access    : ${RED}[FAIL]${NC}"
-        
-        if mount | grep -q "$FLOPPY_DIR"; then
-            [ -w "$FLOPPY_DIR" ] && echo -e "Floppy Write     : ${WHITE}[OK]${NC}" || echo -e "Floppy Write     : ${RED}[READ-ONLY]${NC}"
-        else
-            echo -e "Floppy Write     : ${ORANGE}[NOT MOUNTED]${NC}"
-        fi
-        
-        # Quick ping to Google DNS to check if the cyberdeck is online
         ping -c 1 8.8.8.8 >/dev/null 2>&1 && echo -e "Network Access   : ${WHITE}[ONLINE]${NC}" || echo -e "Network Access   : ${RED}[OFFLINE]${NC}"
         exit 0
         ;;
 
     "update")
-        echo -e "${ORANGE}========================================${NC}"
-        echo -e "${WHITE} CHECKING GITHUB FOR UPDATES...${NC}"
-        echo -e "${ORANGE}========================================${NC}"
-        
-        # Pull the raw code from your repository and overwrite the local binary
         if sudo curl -sL "https://raw.githubusercontent.com/cutypander/word_at/main/word@" -o /usr/local/bin/word@; then
             sudo chmod +x /usr/local/bin/word@
-            echo -e "${WHITE}word@ has been successfully updated to the latest version.${NC}"
-        else
-            echo -e "${RED}Error: Could not reach GitHub. Check your connection.${NC}"
+            echo -e "${WHITE}word@ updated to latest version.${NC}"
         fi
         exit 0
         ;;
 
     *)
-        # Default behavior: Open or create file in Nano
+        # Default behavior: Open file
         if [ -n "$1" ]; then
             filename="$1"
         else
             read -p "Enter document name: " filename
         fi
         filepath="$BANK_DIR/$filename.txt"
-        nano "$filepath"
+        
+        # Check if user is on a Desktop GUI or pure Terminal
+        if [ -n "$DISPLAY" ] && command -v xdg-open >/dev/null 2>&1; then
+            # We are on a desktop, open cleanly in default visual editor
+            xdg-open "$filepath" 2>/dev/null || nano "$filepath"
+        else
+            # Pure terminal, stick to the gritty retro vibes
+            nano "$filepath"
+        fi
         ;;
 esac
