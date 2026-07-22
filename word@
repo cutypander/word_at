@@ -22,6 +22,34 @@ mkdir -p "$BANK_DIR"
 touch "$LEDGER_FILE"
 
 # ==========================================
+# DEPENDENCY CHECKS
+# ==========================================
+check_audio_engine() {
+    if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v mpg123 >/dev/null 2>&1 || ! command -v arecord >/dev/null 2>&1; then
+        echo -e "${ORANGE}========================================${NC}"
+        echo -e "${WHITE} AUDIO ENGINE INITIALIZATION${NC}"
+        echo -e "${ORANGE}========================================${NC}"
+        echo -e "${RED}Missing required tools: ffmpeg, mpg123, alsa-utils${NC}"
+        read -p "Install dependencies now? (Y/N): " install_choice
+        
+        if [[ "$install_choice" == "Y" || "$install_choice" == "y" ]]; then
+            echo -e "${WHITE}Fetching packages from the grid...${NC}"
+            sudo apt-get update -qq
+            if sudo apt-get install -y ffmpeg mpg123 alsa-utils >/dev/null 2>&1; then
+                echo -e "${WHITE}Audio engine downloaded, continuing with task.${NC}"
+                echo -e "${ORANGE}----------------------------------------${NC}"
+            else
+                echo -e "${RED}Error: Installation failed. Check network connection.${NC}"
+                exit 1
+            fi
+        else
+            echo -e "${RED}Audio commands cannot be used without these packages. Aborting.${NC}"
+            exit 1
+        fi
+    fi
+}
+
+# ==========================================
 # THE SWITCHBOARD
 # ==========================================
 case "$1" in
@@ -100,6 +128,8 @@ case "$1" in
         ;;
 
     "tape")
+        check_audio_engine
+        
         read -p "Enter a name for this recording: " rec_name
         echo -e "${ORANGE}========================================${NC}"
         echo -e "${WHITE} LIVE AUDIO RECORDING${NC}"
@@ -122,7 +152,7 @@ case "$1" in
             rm -f "$TEMP_WAV"
             echo -e "${ORANGE}Recording saved to WordBank as $rec_name.mp3${NC}"
         else
-            echo -e "${RED}Error: ffmpeg is missing. Please run: sudo apt install ffmpeg${NC}"
+            echo -e "${RED}Error: Audio processing failed.${NC}"
         fi
         exit 0
         ;;
@@ -213,6 +243,8 @@ case "$1" in
         ;;
 
     "STF")
+        check_audio_engine
+        
         echo -e "${ORANGE}========================================${NC}"
         echo -e "${WHITE} SOUND TO FLOPPY ARCHIVE PROTOCOL${NC}"
         echo -e "${ORANGE}========================================${NC}"
@@ -269,7 +301,6 @@ case "$1" in
             4) 
                 DURATION=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$SELECTED_FILE" | awk '{print int($1)}')
                 if [ "$DURATION" -le 0 ]; then DURATION=1; fi
-                # Math: (KB * 8) / Seconds = Kbps. Use 95% safety margin.
                 MAX_BITRATE=$(( (FREE_SPACE_KB * 8) / DURATION ))
                 SAFE_BITRATE=$(( MAX_BITRATE * 95 / 100 ))
                 
@@ -296,7 +327,7 @@ case "$1" in
                 echo -e "${WHITE}Auto-Run protocol established.${NC}"
             fi
         else
-            echo -e "${RED}Error: Transfer failed. Is ffmpeg installed?${NC}"
+            echo -e "${RED}Error: Audio compression failed.${NC}"
         fi
         exit 0
         ;;
@@ -345,10 +376,11 @@ case "$1" in
                 if [ -d "$FLOPPY_DIR" ]; then
                     # 1. Check for Audio Autorun
                     if [ -f "$FLOPPY_DIR/.autorun" ]; then
+                        check_audio_engine
                         AUTORUN_FILE=$(cat "$FLOPPY_DIR/.autorun")
                         if [ -f "$FLOPPY_DIR/$AUTORUN_FILE" ]; then
                             echo -e "${WHITE}Auto-Run triggered: $AUTORUN_FILE${NC}"
-                            mpg123 -q "$FLOPPY_DIR/$AUTORUN_FILE" 2>/dev/null || echo -e "${RED}Error: mpg123 player missing.${NC}"
+                            mpg123 -q "$FLOPPY_DIR/$AUTORUN_FILE" 2>/dev/null
                             exit 0
                         fi
                     fi
@@ -388,10 +420,11 @@ case "$1" in
             echo -e "${ORANGE}========================================${NC}"
             
         elif [ -f "$BANK_DIR/$target.mp3" ]; then
+            check_audio_engine
             echo -e "${ORANGE}========================================${NC}"
             echo -e "${WHITE} PLAYING AUDIO: $target.mp3${NC}"
             echo -e "${ORANGE}========================================${NC}"
-            mpg123 -q "$BANK_DIR/$target.mp3" 2>/dev/null || echo -e "${RED}Error: mpg123 is missing. Please run: sudo apt install mpg123${NC}"
+            mpg123 -q "$BANK_DIR/$target.mp3" 2>/dev/null
         else
             echo -e "${RED}Target '$target' not found in WordBank.${NC}"
         fi
