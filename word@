@@ -3,7 +3,7 @@
 # ==========================================
 # SYSTEM VARIABLES & PATHS
 # ==========================================
-BANK_DIR="$HOME/WordBank"
+BANK_DIR="$HOME/word_at_bank"
 FLOPPY_DIR="/mnt/floppy"
 LEDGER_FILE="$HOME/.floppy_ledger"
 SAFE_OVERHEAD=50
@@ -12,57 +12,77 @@ SAFE_OVERHEAD=50
 ORANGE='\033[38;5;208m'
 WHITE='\033[1;37m'
 RED='\033[0;31m'
+GREEN='\033[0;32m'
 NC='\033[0m'
 
 # Phonetic Array for Disk Naming
 NATO=(ALPHA BRAVO CHARLIE DELTA ECHO FOXTROT GOLF HOTEL INDIA JULIETT KILO LIMA MIKE NOVEMBER OSCAR PAPA QUEBEC ROMEO SIERRA TANGO UNIFORM VICTOR WHISKEY XRAY YANKEE ZULU)
 
-# Guarantee local Bank and Ledger exist
-mkdir -p "$BANK_DIR"
+# Guarantee local Bank, Ledger, and Subfolders exist
+mkdir -p "$BANK_DIR/text"
+mkdir -p "$BANK_DIR/audio"
+mkdir -p "$BANK_DIR/images"
 touch "$LEDGER_FILE"
-
-# ==========================================
-# DEPENDENCY CHECKS
-# ==========================================
-check_audio_engine() {
-    if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v mpg123 >/dev/null 2>&1 || ! command -v arecord >/dev/null 2>&1; then
-        echo -e "${ORANGE}========================================${NC}"
-        echo -e "${WHITE} AUDIO ENGINE INITIALIZATION${NC}"
-        echo -e "${ORANGE}========================================${NC}"
-        echo -e "${RED}Missing required tools: ffmpeg, mpg123, alsa-utils${NC}"
-        read -p "Install dependencies now? (Y/N): " install_choice
-        
-        if [[ "$install_choice" == "Y" || "$install_choice" == "y" ]]; then
-            echo -e "${WHITE}Fetching packages from the grid...${NC}"
-            sudo apt-get update -qq
-            if sudo apt-get install -y ffmpeg mpg123 alsa-utils >/dev/null 2>&1; then
-                echo -e "${WHITE}Audio engine downloaded, continuing with task.${NC}"
-                echo -e "${ORANGE}----------------------------------------${NC}"
-            else
-                echo -e "${RED}Error: Installation failed. Check network connection.${NC}"
-                exit 1
-            fi
-        else
-            echo -e "${RED}Audio commands cannot be used without these packages. Aborting.${NC}"
-            exit 1
-        fi
-    fi
-}
 
 # ==========================================
 # THE SWITCHBOARD
 # ==========================================
 case "$1" in
 
+    "")
+        echo -e "${ORANGE}========================================${NC}"
+        echo -e "${WHITE} word@ SYSTEM DASHBOARD${NC}"
+        echo -e "${ORANGE}========================================${NC}"
+        echo -e "Available Commands:"
+        echo -e "  write, raw, ?rec, TTF, STF, init"
+        echo -e "  ?scan, ?flop, ?gath, ?when, view, del!"
+        echo -e "  help!, ?work, update"
+        echo -e "${ORANGE}========================================${NC}"
+
+        MISSING_PKGS=()
+        
+        # Check required system binaries and map to their apt packages
+        command -v ffmpeg >/dev/null 2>&1 || MISSING_PKGS+=("ffmpeg")
+        command -v mpg123 >/dev/null 2>&1 || MISSING_PKGS+=("mpg123")
+        command -v arecord >/dev/null 2>&1 || MISSING_PKGS+=("alsa-utils")
+        command -v wodim >/dev/null 2>&1 || MISSING_PKGS+=("wodim")
+        command -v qsstv >/dev/null 2>&1 || MISSING_PKGS+=("qsstv")
+        command -v convert >/dev/null 2>&1 || MISSING_PKGS+=("imagemagick")
+
+        # The Visual Installer Protocol
+        if [ ${#MISSING_PKGS[@]} -gt 0 ]; then
+            echo -e "\n${WHITE}Want to install the necessary files? Y/N${NC}"
+            read -p "> " install_choice
+            if [[ "$install_choice" == "Y" || "$install_choice" == "y" ]]; then
+                echo -e "\n${ORANGE}Updating grid repositories...${NC}"
+                sudo apt-get update -qq
+                echo ""
+                
+                for pkg in "${MISSING_PKGS[@]}"; do
+                    echo -e "- installing $pkg"
+                    if sudo apt-get install -y "$pkg" >/dev/null 2>&1; then
+                        echo -e "${GREEN}- $pkg installed${NC}\n"
+                    else
+                        echo -e "${RED}- $pkg failed to install${NC}\n"
+                    fi
+                done
+                
+                echo -e "${ORANGE}- auto clearing in 3 seconds...${NC}"
+                sleep 3
+                clear
+            fi
+        fi
+        exit 0
+        ;;
+
     "?well")
         echo -e "${ORANGE}========================================${NC}"
         echo -e "${WHITE}   Welcome to the Terminal Workspace    ${NC}"
         echo -e "${ORANGE}========================================${NC}"
-        echo -e "${ORANGE}This is a distraction-free drafting environment."
-        echo -e "Everything you write is secured in a local bank"
+        echo -e "${ORANGE}This is a distraction-free media environment."
+        echo -e "Everything you record is secured in a local bank"
         echo -e "before being archived to physical floppy disks.${NC}\n"
         
-        # --- NEW HARDWARE SCANNER ---
         if mount | grep -q "$FLOPPY_DIR"; then
             echo -e "  Hardware Status : ${WHITE}[FLOPPY DRIVE ACTIVE]${NC}"
         else
@@ -76,21 +96,61 @@ case "$1" in
         ;;
 
     "help!")
-        echo -e "${WHITE}COMMAND DIRECTORY:${NC}"
-        echo -e "  ${WHITE}[no flag]${NC} - Standard Mode: Open a file (Nano/Desktop)."
-        echo -e "  ${WHITE}raw${NC}       - Raw Mode: Write directly to the terminal."
-        echo -e "  ${WHITE}tape${NC}      - Field Recorder: Record MP3 audio to Bank."
-        echo -e "  ${WHITE}TTF${NC}       - Text To Floppy: Archive text bank to disk."
-        echo -e "  ${WHITE}STF${NC}       - Sound To Floppy: Archive audio with compression."
-        echo -e "  ${WHITE}init${NC}      - Format, scan, and stamp a new floppy."
-        echo -e "  ${WHITE}?scan${NC}     - Run advanced scanner protocols & auto-run."
-        echo -e "  ${WHITE}?flop${NC}     - Check floppy drive status/capacity."
-        echo -e "  ${WHITE}?gath${NC}     - Calculate file sizes and bank weight."
-        echo -e "  ${WHITE}?when${NC}     - Display creation/modification dates."
-        echo -e "  ${WHITE}view${NC}      - Stream text (16-bit) or playback audio."
-        echo -e "  ${WHITE}del!${NC}      - Access system burn protocols."
-        echo -e "  ${WHITE}?work${NC}     - Run system access diagnostics."
-        echo -e "  ${WHITE}update${NC}    - Pull the latest version from GitHub."
+        if [ "$2" == "tree" ]; then
+            echo -e "${WHITE}SYSTEM HIERARCHY:${NC}"
+            echo -e "${ORANGE}word@${NC}"
+            echo -e "├── Core Drafting"
+            echo -e "│   ├── write (Nano/GUI Editor)"
+            echo -e "│   └── raw   (Direct Terminal Input)"
+            echo -e "├── Media & Archives"
+            echo -e "│   ├── ?rec  (Audio Field Recorder)"
+            echo -e "│   ├── TTF   (Text to Floppy)"
+            echo -e "│   └── STF   (Sound to Floppy)"
+            echo -e "└── Diagnostics & Utilities"
+            echo -e "    ├── view  (Media Player/Streamer)"
+            echo -e "    ├── init  (Format Floppy)"
+            echo -e "    ├── ?scan (Advanced Tools)"
+            echo -e "    ├── ?flop (Hardware Status)"
+            echo -e "    ├── ?gath (Metrics)"
+            echo -e "    ├── ?when (Timestamps)"
+            echo -e "    ├── ?work (System Health)"
+            echo -e "    └── del!  (Burn Protocols)"
+        else
+            echo -e "${WHITE}COMMAND DESCRIPTIONS (use 'help! tree' for hierarchy):${NC}"
+            echo -e "  ${WHITE}write${NC}     - Open or create a text file (Nano/Desktop)."
+            echo -e "  ${WHITE}raw${NC}       - Write text directly to the terminal."
+            echo -e "  ${WHITE}?rec${NC}      - Record MP3 audio to the Bank."
+            echo -e "  ${WHITE}TTF${NC}       - Text To Floppy: Archive text to disk."
+            echo -e "  ${WHITE}STF${NC}       - Sound To Floppy: Archive audio with compression."
+            echo -e "  ${WHITE}init${NC}      - Format, scan, and stamp a new floppy."
+            echo -e "  ${WHITE}?scan${NC}     - Run advanced scanner protocols & auto-run."
+            echo -e "  ${WHITE}?flop${NC}     - Check floppy drive status/capacity."
+            echo -e "  ${WHITE}?gath${NC}     - Calculate file sizes and bank weight."
+            echo -e "  ${WHITE}?when${NC}     - Display creation/modification dates."
+            echo -e "  ${WHITE}view${NC}      - Stream text (16-bit) or playback audio."
+            echo -e "  ${WHITE}del!${NC}      - Access system burn protocols."
+            echo -e "  ${WHITE}?work${NC}     - Run system access diagnostics."
+            echo -e "  ${WHITE}update${NC}    - Pull the latest version from GitHub."
+        fi
+        exit 0
+        ;;
+
+    "write")
+        if [ -n "$2" ]; then
+            filename="$2"
+        else
+            read -p "Enter document name: " filename
+        fi
+        filepath="$BANK_DIR/text/$filename.txt"
+        
+        # Guarantee the file actually exists before opening
+        touch "$filepath"
+        
+        if [ -n "$DISPLAY" ] && command -v xdg-open >/dev/null 2>&1; then
+            xdg-open "$filepath" 2>/dev/null || nano "$filepath"
+        else
+            nano "$filepath"
+        fi
         exit 0
         ;;
 
@@ -101,8 +161,8 @@ case "$1" in
             read -p "Enter document name: " filename
         fi
         
-        TEMP_FILE="$BANK_DIR/.$filename.tmp"
-        FINAL_FILE="$BANK_DIR/$filename.txt"
+        TEMP_FILE="$BANK_DIR/text/.$filename.tmp"
+        FINAL_FILE="$BANK_DIR/text/$filename.txt"
         
         echo -e "${ORANGE}========================================${NC}"
         echo -e "${WHITE} RAW WRITING MODE ENGAGED${NC}"
@@ -127,8 +187,11 @@ case "$1" in
         done
         ;;
 
-    "tape")
-        check_audio_engine
+    "?rec")
+        if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v arecord >/dev/null 2>&1; then
+            echo -e "${RED}Cannot continue, relevant files missing, re-execute word@ command.${NC}"
+            exit 1
+        fi
         
         read -p "Enter a name for this recording: " rec_name
         echo -e "${ORANGE}========================================${NC}"
@@ -136,21 +199,19 @@ case "$1" in
         echo -e "${ORANGE} Press [ENTER] to stop recording.${NC}"
         echo -e "${ORANGE}========================================${NC}"
         
-        TEMP_WAV="$BANK_DIR/.$rec_name.tmp.wav"
-        FINAL_MP3="$BANK_DIR/$rec_name.mp3"
+        TEMP_WAV="$BANK_DIR/audio/.$rec_name.tmp.wav"
+        FINAL_MP3="$BANK_DIR/audio/$rec_name.mp3"
         
-        # Start recording in the background
         arecord -f cd "$TEMP_WAV" -q &
         RECORD_PID=$!
         
-        # Wait for the user to hit Enter
         read -r
         kill $RECORD_PID 2>/dev/null
         
         echo -e "${WHITE}Processing audio...${NC}"
         if ffmpeg -y -i "$TEMP_WAV" -qscale:a 2 "$FINAL_MP3" 2>/dev/null; then
             rm -f "$TEMP_WAV"
-            echo -e "${ORANGE}Recording saved to WordBank as $rec_name.mp3${NC}"
+            echo -e "${GREEN}Recording saved to WordBank as $rec_name.mp3${NC}"
         else
             echo -e "${RED}Error: Audio processing failed.${NC}"
         fi
@@ -168,7 +229,6 @@ case "$1" in
         echo -e "${ORANGE}========================================${NC}"
         
         NEW_ID=$(tr -dc A-Z0-9 </dev/urandom | head -c 6)
-        
         WORD1=${NATO[$RANDOM % 26]}
         if grep -q "NAME: $WORD1" "$LEDGER_FILE"; then
             WORD2=${NATO[$RANDOM % 26]}
@@ -187,11 +247,11 @@ case "$1" in
         if [ "$BAD_COUNT" -gt 0 ]; then
             echo -e "${RED}WARNING: $BAD_COUNT dead sectors detected.${NC}"
         else
-            echo -e "${WHITE}Scan complete. Surface integrity is 100%.${NC}"
+            echo -e "${GREEN}Scan complete. Surface integrity is 100%.${NC}"
         fi
         
         echo "ID: $NEW_ID | NAME: $DISK_NAME | BAD_BLOCKS: $BAD_COUNT" >> "$LEDGER_FILE"
-        echo -e "${ORANGE}Disk successfully integrated into the ecosystem.${NC}"
+        echo -e "${GREEN}Disk successfully integrated into the ecosystem.${NC}"
         exit 0
         ;;
 
@@ -216,7 +276,7 @@ case "$1" in
         FREE_SPACE=$(df -k "$FLOPPY_DIR" | awk 'NR==2 {print $4}')
         SAFE_SPACE=$((FREE_SPACE - BAD_BLOCKS - SAFE_OVERHEAD))
 
-        for FILE in "$BANK_DIR"/*.txt; do
+        for FILE in "$BANK_DIR"/text/*.txt; do
             [ -e "$FILE" ] || continue
             FILE_SIZE=$(du -k "$FILE" | cut -f1)
             REQUIRED_SPACE=$((FILE_SIZE * 2))
@@ -238,12 +298,15 @@ case "$1" in
                 echo -e "${RED}Skipped: $BASENAME (Exceeds remaining space)${NC}"
             fi
         done
-        echo -e "${ORANGE}TTF Transfer Complete.${NC}"
+        echo -e "${GREEN}TTF Transfer Complete.${NC}"
         exit 0
         ;;
 
     "STF")
-        check_audio_engine
+        if ! command -v ffmpeg >/dev/null 2>&1; then
+            echo -e "${RED}Cannot continue, relevant files missing, re-execute word@ command.${NC}"
+            exit 1
+        fi
         
         echo -e "${ORANGE}========================================${NC}"
         echo -e "${WHITE} SOUND TO FLOPPY ARCHIVE PROTOCOL${NC}"
@@ -254,9 +317,8 @@ case "$1" in
             exit 1
         fi
         
-        # 1. Build Uppercase Grid Menu
         shopt -s nullglob
-        files=("$BANK_DIR"/*.mp3)
+        files=("$BANK_DIR"/audio/*.mp3)
         shopt -u nullglob
         
         if [ ${#files[@]} -eq 0 ]; then
@@ -319,7 +381,7 @@ case "$1" in
 
         echo -e "${WHITE}Compressing & Transferring...${NC}"
         if ffmpeg -y -i "$SELECTED_FILE" -c:a libmp3lame -b:a "$TARGET_BITRATE" -ac 1 -ar 16000 "$FLOPPY_DIR/$BASENAME" 2>/dev/null; then
-            echo -e "${ORANGE}Audio secured on physical disk.${NC}"
+            echo -e "${GREEN}Audio secured on physical disk.${NC}"
             
             read -p "Set this track to Auto-Run on insert? (Y/N): " autorun_choice
             if [[ "$autorun_choice" == "Y" || "$autorun_choice" == "y" ]]; then
@@ -340,8 +402,9 @@ case "$1" in
         echo -e "  ${WHITE}2)${NC} Local Hunt   (Search Pi and move to Bank)"
         echo -e "  ${WHITE}3)${NC} Ledger Scan  (Find a file's physical disk)"
         echo -e "  ${WHITE}4)${NC} Auto-Execute (Trigger .autorun or script)"
+        echo -e "  ${WHITE}5)${NC} Check System Dependencies"
         echo -e "${ORANGE}========================================${NC}"
-        read -p "Select protocol (1-4): " scan_choice
+        read -p "Select protocol (1-5): " scan_choice
 
         case "$scan_choice" in
             1)
@@ -374,9 +437,11 @@ case "$1" in
                 ;;
             4)
                 if [ -d "$FLOPPY_DIR" ]; then
-                    # 1. Check for Audio Autorun
                     if [ -f "$FLOPPY_DIR/.autorun" ]; then
-                        check_audio_engine
+                        if ! command -v mpg123 >/dev/null 2>&1; then
+                            echo -e "${RED}Cannot continue, relevant files missing, re-execute word@ command.${NC}"
+                            exit 1
+                        fi
                         AUTORUN_FILE=$(cat "$FLOPPY_DIR/.autorun")
                         if [ -f "$FLOPPY_DIR/$AUTORUN_FILE" ]; then
                             echo -e "${WHITE}Auto-Run triggered: $AUTORUN_FILE${NC}"
@@ -385,7 +450,6 @@ case "$1" in
                         fi
                     fi
                     
-                    # 2. Check for Shell Script
                     SCRIPT_FILE=$(ls -1 "$FLOPPY_DIR"/*.sh 2>/dev/null | head -n 1)
                     if [ -n "$SCRIPT_FILE" ]; then
                         echo -e "${WHITE}Executing $SCRIPT_FILE...${NC}"
@@ -395,14 +459,25 @@ case "$1" in
                     fi
                 fi
                 ;;
+            5)
+                echo -e "${WHITE}Checking required packages...${NC}"
+                for pkg in ffmpeg mpg123 arecord wodim qsstv convert; do
+                    if command -v "$pkg" >/dev/null 2>&1; then
+                        echo -e "${GREEN}[OK]${NC} $pkg is installed."
+                    else
+                        echo -e "${RED}[MISSING]${NC} $pkg"
+                    fi
+                done
+                echo -e "${ORANGE}Type 'word@' without arguments to launch the auto-installer.${NC}"
+                ;;
         esac
         exit 0
         ;;
 
     "view")
-        read -p "Enter document or audio name to view/play: " target
+        read -p "Enter target name to view/play: " target
         
-        if [ -f "$BANK_DIR/$target.txt" ]; then
+        if [ -f "$BANK_DIR/text/$target.txt" ]; then
             echo -e "${ORANGE}========================================${NC}"
             echo -e "${WHITE} STREAMING DATA: $target.txt${NC}"
             echo -e "${ORANGE}========================================${NC}"
@@ -414,17 +489,20 @@ case "$1" in
                     sleep 0.02
                 done
                 echo ""
-            done < "$BANK_DIR/$target.txt"
+            done < "$BANK_DIR/text/$target.txt"
             
             echo -e "${NC}"
             echo -e "${ORANGE}========================================${NC}"
             
-        elif [ -f "$BANK_DIR/$target.mp3" ]; then
-            check_audio_engine
+        elif [ -f "$BANK_DIR/audio/$target.mp3" ]; then
+            if ! command -v mpg123 >/dev/null 2>&1; then
+                echo -e "${RED}Cannot continue, relevant files missing, re-execute word@ command.${NC}"
+                exit 1
+            fi
             echo -e "${ORANGE}========================================${NC}"
             echo -e "${WHITE} PLAYING AUDIO: $target.mp3${NC}"
             echo -e "${ORANGE}========================================${NC}"
-            mpg123 -q "$BANK_DIR/$target.mp3" 2>/dev/null
+            mpg123 -q "$BANK_DIR/audio/$target.mp3" 2>/dev/null
         else
             echo -e "${RED}Target '$target' not found in WordBank.${NC}"
         fi
@@ -441,7 +519,7 @@ case "$1" in
         ;;
 
     "?gath")
-        FILE_COUNT=$(ls -1q "$BANK_DIR"/*.txt "$BANK_DIR"/*.mp3 2>/dev/null | wc -l)
+        FILE_COUNT=$(find "$BANK_DIR" -type f | wc -l)
         if [ "$FILE_COUNT" -eq 0 ]; then
             echo -e "${ORANGE}The WordBank is currently empty.${NC}"
             exit 0
@@ -449,12 +527,18 @@ case "$1" in
         BANK_SIZE=$(du -sh "$BANK_DIR" | awk '{print $1}')
         echo -e "${WHITE}Total Files  : $FILE_COUNT${NC}"
         echo -e "${WHITE}Total Weight : $BANK_SIZE${NC}"
-        ls -lh "$BANK_DIR" 2>/dev/null | awk '{print $5 "\t" $9}'
+        
+        echo -e "\n${ORANGE}--- TEXT ---${NC}"
+        ls -lh "$BANK_DIR"/text 2>/dev/null | awk 'NR>1 {print $5 "\t" $9}'
+        echo -e "${ORANGE}--- AUDIO ---${NC}"
+        ls -lh "$BANK_DIR"/audio 2>/dev/null | awk 'NR>1 {print $5 "\t" $9}'
+        echo -e "${ORANGE}--- IMAGES ---${NC}"
+        ls -lh "$BANK_DIR"/images 2>/dev/null | awk 'NR>1 {print $5 "\t" $9}'
         exit 0
         ;;
 
     "?when")
-        ls -lt --time-style=+"%Y-%m-%d %H:%M" "$BANK_DIR" 2>/dev/null | awk '{print $6 " " $7 "\t" $8}'
+        ls -lt --time-style=+"%Y-%m-%d %H:%M" "$BANK_DIR"/*/* 2>/dev/null | awk '{print $6 " " $7 "\t" $8}'
         exit 0
         ;;
 
@@ -466,18 +550,25 @@ case "$1" in
 
         case "$burn_choice" in
             1)
-                read -p "Enter full filename to burn (e.g. story.txt): " target
-                rm -f "$BANK_DIR/$target" && echo -e "${RED}Erased.${NC}" || echo -e "${ORANGE}Not found.${NC}"
+                read -p "Enter exact filename to burn (e.g. story.txt): " target
+                FOUND=$(find "$BANK_DIR" -name "$target")
+                if [ -n "$FOUND" ]; then
+                    rm -f "$FOUND"
+                    echo -e "${RED}Erased.${NC}"
+                else
+                    echo -e "${ORANGE}Not found.${NC}"
+                fi
                 ;;
             2)
-                rm -f "$BANK_DIR"/* && echo -e "${RED}WordBank purged.${NC}"
+                rm -rf "$BANK_DIR"/text/* "$BANK_DIR"/audio/* "$BANK_DIR"/images/*
+                echo -e "${RED}Entire WordBank purged.${NC}"
                 ;;
             3)
                 sudo rm -rf "$FLOPPY_DIR"/* && echo -e "${RED}Physical disk wiped.${NC}"
                 ;;
             4)
                 > "$LEDGER_FILE"
-                rm -f "$BANK_DIR"/*
+                rm -rf "$BANK_DIR"/text/* "$BANK_DIR"/audio/* "$BANK_DIR"/images/*
                 echo -e "${RED}System Reset Complete.${NC}"
                 ;;
         esac
@@ -493,27 +584,12 @@ case "$1" in
     "update")
         if sudo curl -sL "https://raw.githubusercontent.com/cutypander/word_at/main/word@" -o /usr/local/bin/word@; then
             sudo chmod +x /usr/local/bin/word@
-            echo -e "${WHITE}word@ updated to latest version.${NC}"
+            echo -e "${GREEN}word@ updated to latest version.${NC}"
         fi
         exit 0
         ;;
 
     *)
-        # Default behavior: Open file
-        if [ -n "$1" ]; then
-            filename="$1"
-        else
-            read -p "Enter document name: " filename
-        fi
-        filepath="$BANK_DIR/$filename.txt"
-        
-        # Check if user is on a Desktop GUI or pure Terminal
-        if [ -n "$DISPLAY" ] && command -v xdg-open >/dev/null 2>&1; then
-            # We are on a desktop, open cleanly in default visual editor
-            xdg-open "$filepath" 2>/dev/null || nano "$filepath"
-        else
-            # Pure terminal, stick to the gritty retro vibes
-            nano "$filepath"
-        fi
+        echo -e "${RED}Unknown command. Type 'word@' to see the dashboard or 'word@ help!' for descriptions.${NC}"
         ;;
 esac
