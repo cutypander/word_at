@@ -28,20 +28,18 @@ touch "$LEDGER_FILE"
 # word@ rend! - 3D & GRAPHING ENGINES
 # ==========================================
 render_3d_demo() {
-    local width=60; local height=30; local A=0; local B=0
+    local A=0; local B=0
     tput civis; clear
     while true; do
-        local buffer=()
-        for ((i=0; i<width*height; i++)); do buffer[i]=0; done
-
-        local frame_data=$(awk -v A="$A" -v B="$B" -v W="$width" -v H="$height" '
+        awk -v A="$A" -v B="$B" -v W=60 -v H=30 \
+            -v ORG="$ORANGE" -v WHT="$WHITE" -v GRN="$GREEN" -v RST="$NC" '
             function draw_line(x0, y0, x1, y1) {
                 dx = (x1 > x0 ? x1 - x0 : x0 - x1); sx = (x0 < x1 ? 1 : -1)
                 dy = (y1 > y0 ? y0 - y1 : y1 - y0); sy = (y0 < y1 ? 1 : -1)
                 err = dx - dy
                 while(1) {
                     if (x0 >= 0 && x0 < W && y0 >= 0 && y0 < H) {
-                        idx = int(y0 * W + x0)
+                        idx = y0 * W + x0
                         buf[idx]++
                     }
                     if (x0 == x1 && y0 == y1) break
@@ -56,44 +54,44 @@ render_3d_demo() {
                 E[0]="0,1"; E[1]="1,2"; E[2]="2,3"; E[3]="3,0"
                 E[4]="4,5"; E[5]="5,6"; E[6]="6,7"; E[7]="7,4"
                 E[8]="0,4"; E[9]="1,5"; E[10]="2,6"; E[11]="3,7"
+
                 cosA = cos(A); sinA = sin(A); cosB = cos(B); sinB = sin(B)
                 for (i=0; i<8; i++) {
                     split(V[i], c, ","); x=c[1]; y=c[2]; z=c[3]
                     xy = x; x = xy*cosA - z*sinA; z = xy*sinA + z*cosA
                     yz = y; y = yz*cosB - z*sinB; z = yz*sinB + z*cosB
-                    PX[i] = int(W/2 + (x * 12)); PY[i] = int(H/2 + (y * 6))
+                    PX[i] = int(W/2 + (x * 12))
+                    PY[i] = int(H/2 + (y * 6))
                 }
                 for (i=0; i<12; i++) {
                     split(E[i], pts, ","); p1 = pts[1]; p2 = pts[2]
                     draw_line(PX[p1], PY[p1], PX[p2], PY[p2])
                 }
-                for (i in buf) print i "=" buf[i]
+
+                printf "\033[H"
+                print ORG "  >>> word@ RENDERER - Press CTRL+C to exit" RST "\n"
+
+                for (y=0; y<H; y++) {
+                    line = ""
+                    for (x=0; x<W; x++) {
+                        idx = y * W + x
+                        val = buf[idx]
+                        if (val == 0 || val == "") line = line " "
+                        else if (val == 1) line = line WHT "." RST
+                        else if (val == 2) line = line ORG "+" RST
+                        else line = line GRN "█" RST
+                    }
+                    print line
+                }
             }
-        ')
+            ' /dev/null
 
-        for val in $frame_data; do
-            idx="${val%=*}"; density="${val#*=}"; buffer[$idx]=$density
+            # Native awk math for rotation angles (no bc required)
+            A=$(awk -v a="$A" 'BEGIN {print a + 0.05}')
+            B=$(awk -v b="$B" 'BEGIN {print b + 0.03}')
+            sleep 0.03
         done
-
-        printf "\033[H"
-        echo -e "${ORANGE}  >>> word@ RENDERER - Press CTRL+C to exit${NC}\n"
-        local out=""
-        for ((y=0; y<height; y++)); do
-            for ((x=0; x<width; x++)); do
-                idx=$((y * width + x))
-                val=${buffer[$idx]}
-                if [[ -z $val || $val -eq 0 ]]; then out+=" "
-                elif [[ $val -eq 1 ]]; then out+="${WHITE}.${NC}"
-                elif [[ $val -eq 2 ]]; then out+="${ORANGE}+${NC}"
-                else out+="${GREEN}█${NC}"
-                fi
-            done
-            out+="\n"
-        done
-        printf "%b" "$out"
-        A=$(echo "$A + 0.05" | bc); B=$(echo "$B + 0.03" | bc)
-    done
-}
+    }
 
 graph_monitor() {
     local width=50; local height=10; local history=()
