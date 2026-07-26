@@ -115,7 +115,6 @@ render_3d_demo() {
         sleep 0.05
     done
 }
-        '
 
 graph_monitor() {
     local width=50; local height=10; local history=()
