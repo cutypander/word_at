@@ -129,6 +129,72 @@ interactive_calculator() {
     done
 }
 
+file_calculator() {
+    local tmp_math="$BANK_DIR/text/.calc_input.tmp"
+    
+    # Ensure file is empty and ready
+    > "$tmp_math"
+    
+    # Open editor (like 'write' command)
+    if [ -n "$DISPLAY" ] && command -v xdg-open >/dev/null 2>&1; then
+        xdg-open "$tmp_math" 2>/dev/null || nano "$tmp_math"
+        echo -e "${WHITE}Waiting for editor to close... Press [ENTER] when done saving.${NC}"
+        read -r
+    else
+        nano "$tmp_math"
+    fi
+
+    clear
+    echo -e "${ORANGE}========================================${NC}"
+    echo -e "${WHITE} PROCESSING FILE DATA...${NC}"
+    echo -e "${ORANGE}========================================${NC}"
+    
+    local has_content=0
+    while IFS= read -r line || [ -n "$line" ]; do
+        # Skip empty lines
+        [[ -z "$(echo -e "${line}" | tr -d '[:space:]')" ]] && continue
+        has_content=1
+        
+        execute_python_math "$line"
+        echo -e "${ORANGE}----------------------------------------${NC}"
+    done < "$tmp_math"
+    
+    if [ "$has_content" -eq 0 ]; then
+        echo -e "${RED}File was empty. No math processed.${NC}"
+    fi
+    
+    # Burn the evidence
+    rm -f "$tmp_math"
+    echo -e "\n${WHITE}Temporary file burned. Press any key to return...${NC}"
+    read -n 1 -s
+    calculator_engine
+}
+
+calculator_engine() {
+    if ! command -v python3 >/dev/null 2>&1; then
+        echo -e "${RED}Error: python3 is not installed.${NC}"
+        exit 1
+    fi
+
+    clear
+    echo -e "${ORANGE}========================================${NC}"
+    echo -e "${WHITE} word@ MATH DASHBOARD${NC}"
+    echo -e "${ORANGE}========================================${NC}"
+    echo -e " [1] from_file  (Paste/Write complex math in a .txt)"
+    echo -e " [2] calculator (Interactive terminal prompt)"
+    echo -e " [q] Return to Terminal"
+    echo -e "${ORANGE}========================================${NC}"
+    read -n 1 -p " Select mode: " calc_mode
+    echo ""
+
+    case $calc_mode in
+        1) file_calculator ;;
+        2) interactive_calculator ;;
+        q|Q) clear; exit 0 ;;
+        *) echo "Invalid selection."; sleep 1; calculator_engine ;;
+    esac
+}
+
 # ==========================================
 # THE SWITCHBOARD
 # ==========================================
