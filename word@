@@ -24,6 +24,7 @@ mkdir -p "$BANK_DIR/audio"
 mkdir -p "$BANK_DIR/images"
 touch "$LEDGER_FILE"
 
+
 # ==========================================
 # word@ ?calc - HYBRID PYTHON MATH ENGINE
 # ==========================================
@@ -172,7 +173,7 @@ file_calculator() {
 
 calculator_engine() {
     if ! command -v python3 >/dev/null 2>&1; then
-        echo -e "${RED}Error: python3 is not installed.${NC}"
+        echo -e "${RED}Error: python3 is not installed. Run 'word@' to install dependencies.${NC}"
         exit 1
     fi
 
@@ -194,6 +195,7 @@ calculator_engine() {
         *) echo "Invalid selection."; sleep 1; calculator_engine ;;
     esac
 }
+
 
 # ==========================================
 # THE SWITCHBOARD
@@ -290,6 +292,8 @@ case "$1" in
             echo -e "├── TTF (Text to Floppy)"
             echo -e "├── init"
             echo -e "├── ?calc"
+            echo -e "│   ├── 1) from_file"
+            echo -e "│   └── 2) interactive"
             echo -e "├── ?scan"
             echo -e "│   ├── 1) Surface Scan"
             echo -e "│   ├── 2) Local Hunt"
@@ -315,7 +319,7 @@ case "$1" in
             echo -e "${ORANGE}STF${NC}              - Sound To Floppy. Compresses and transfers audio to disk. Offers 4 profiles: 1) Short (High Q), 2) Standard, 3) Long (Max Length), 4) Auto (Fits exact remaining space)."
             echo -e "${ORANGE}TTF${NC}              - Text To Floppy. Scans the local WordBank text directory and safely archives files to the inserted floppy disk without exceeding capacity."
             echo -e "${ORANGE}view [target]${NC}    - Universal media viewer. Streams text files using a 16-bit typewriter effect or plays mp3 files using the 'mpg123' audio engine."
-            echo -e "${ORANGE}?calc${NC}            - Floating-point math calculator powered by a background Python engine."
+            echo -e "${ORANGE}?calc${NC}            - Floating-point math calculator powered by a background Python engine. Includes interactive and from_file modes."
             echo -e "${ORANGE}?scan${NC}            - Multi-tool diagnostic suite. 1) Magnetic surface scan. 2) Local system file hunt. 3) Physical disk ledger search. 4) Floppy auto-run trigger. 5) Dependency check."
             echo -e "${ORANGE}del!${NC}             - System burn protocols. Safely erase a specific file (1), purge your entire local WordBank (2), wipe the physical floppy (3), or execute a total factory reset (4)."
             echo -e "${ORANGE}init${NC}             - Initializes a new floppy disk. Generates a random NATO phonetic name, stamps a unique ID, runs a magnetic badblock scan, and updates the local ledger."
