@@ -25,177 +25,54 @@ mkdir -p "$BANK_DIR/images"
 touch "$LEDGER_FILE"
 
 # ==========================================
-# word@ rend! - GRAPHING ENGINES
+# word@ ?calc - HYBRID PYTHON MATH ENGINE
 # ==========================================
+calculator_engine() {
+    clear
+    echo -e "${ORANGE}========================================${NC}"
+    echo -e "${WHITE} word@ CALCULATOR (PYTHON ENGINE)${NC}"
+    echo -e "${ORANGE}========================================${NC}"
+    echo -e " Supports +, -, *, /, (), and decimals."
+    echo -e " You can use 'x' or 'X' for multiplication."
+    echo -e " Type 'q' or 'exit' to return to terminal."
+    echo -e "${ORANGE}========================================${NC}"
 
-graph_monitor() {
-    local width=50; local height=10; local history=()
-    for ((i=0; i<width; i++)); do history[i]=0; done
-    tput civis; clear
-    
+    # Verify Python exists before starting
+    if ! command -v python3 >/dev/null 2>&1; then
+        echo -e "${RED}Error: python3 is not installed. Run 'word@' to install dependencies.${NC}"
+        exit 1
+    fi
+
     while true; do
-        # 1. AWK parses the kernel safely (Bypasses the Bash float crash)
-        local cpu_raw=$(awk '
-            BEGIN {
-                if ((getline < "/proc/stat") > 0) {
-                    u1=$2; n1=$3; s1=$4; i1=$5; io1=$6; irq1=$7; sirq1=$8; steal1=$9
-                    close("/proc/stat")
-                    system("sleep 0.5")
-                    getline < "/proc/stat"
-                    u2=$2; n2=$3; s2=$4; i2=$5; io2=$6; irq2=$7; sirq2=$8; steal2=$9
-                    close("/proc/stat")
-                    
-                    t1 = u1+n1+s1+i1+io1+irq1+sirq1+steal1
-                    t2 = u2+n2+s2+i2+io2+irq2+sirq2+steal2
-                    
-                    if(t2 > t1) {
-                        diff = t2 - t1
-                        idiff = i2 - i1
-                        print int(100 * (diff - idiff) / diff)
-                    } else {
-                        print 0
-                    }
-                } else {
-                    system("sleep 0.5")
-                    print 0
-                }
-            }
-        ')
+        read -p " Calc > " math_input
         
-        cpu_raw=${cpu_raw:-0} # Fallback to 0 if completely empty
+        # Exit triggers
+        if [[ "$math_input" == "q" || "$math_input" == "exit" || -z "$math_input" ]]; then
+            echo -e "${WHITE}Exiting calculator...${NC}"
+            sleep 1
+            clear
+            exit 0
+        fi
         
-        # 2. Render locally in Bash
-        local scaled_val=$(( cpu_raw / 10 ))
-        [[ $scaled_val -gt $height ]] && scaled_val=$height
-        history=("${history[@]:1}"); history+=($scaled_val)
+        # Sanitize input: Translate 'x' and 'X' to standard '*'
+        clean_input=$(echo "$math_input" | tr 'xX' '**')
+        
+        # The Back-Pass: Send string to python, evaluate, and return output
+        result=$(python3 -c "
+try:
+    ans = eval('$clean_input')
+    # Format float cleanly (removes trailing .0 if it's a whole number)
+    print(f'{ans:g}') 
+except Exception:
+    print('ERR')
+" 2>/dev/null)
 
-        printf "\033[H"
-        echo -e "${ORANGE}  >>> word@ LIVE PROCESS MONITOR - Press CTRL+C to exit${NC}"
-        echo -e "${WHITE}  Kernel Load (Realtime Delta): ${GREEN}${cpu_raw}%${NC}\n"
-        for ((y=height; y>0; y--)); do
-            printf "${ORANGE}%2d|${NC} " "$((y*10))"
-            for ((x=0; x<width; x++)); do
-                val=${history[$x]}
-                if [[ $val -ge $y ]]; then printf "${GREEN}█${NC}"
-                else printf " "
-                fi
-            done
-            printf "\n"
-        done
-        printf "   +$(seq -s- $width|tr -d '[:digit:]')\n"
+        if [[ "$result" == "ERR" || -z "$result" ]]; then
+            echo -e "${RED} Invalid syntax.${NC}"
+        else
+            echo -e " ${GREEN}= $result${NC}\n"
+        fi
     done
-}
-
-graph_manual() {
-    tput civis; clear
-    echo -e "${ORANGE}========================================${NC}"
-    echo -e "${WHITE} MANUAL DATA GRAPHING TOOL${NC}"
-    echo -e "${ORANGE}========================================${NC}"
-    tput cnorm
-    echo -e " Enter data points as space-separated numbers (0-100)"
-    echo -e " Example: 10 40 80 100 80 40 10\n"
-    read -p " Data: " input_data
-    
-    echo -e "\n${WHITE} Select Graph Style:${NC}"
-    echo -e " [1] Bar Graph"
-    echo -e " [2] Scatter Plot"
-    echo -e " [3] Line Graph (Wireframe)"
-    read -n 1 -p " Choice: " style_choice
-    
-    tput civis; clear
-
-    # Lock in literal color escapes for AWK execution
-    local ESC=$(printf '\033')
-    local aORG="${ESC}[38;5;208m"
-    local aWHT="${ESC}[1;37m"
-    local aGRN="${ESC}[0;32m"
-    local aRST="${ESC}[0m"
-
-    echo "$input_data" | awk -v style="$style_choice" -v ORG="$aORG" -v WHT="$aWHT" -v GRN="$aGRN" -v RST="$aRST" '
-        function draw_line(x0, y0, x1, y1,   dx, dy, sx, sy, err, e2) {
-            dx = (x1 > x0 ? x1 - x0 : x0 - x1); sx = (x0 < x1 ? 1 : -1)
-            dy = (y1 > y0 ? y0 - y1 : y1 - y0); sy = (y0 < y1 ? 1 : -1)
-            err = dx - dy
-            while(1) {
-                if (x0 >= 0 && x0 < W && y0 >= 0 && y0 <= H) {
-                    buf[y0 * W + x0] = 1
-                }
-                if (x0 == x1 && y0 == y1) break
-                e2 = 2 * err
-                if (e2 > -dy) { err -= dy; x0 += sx }
-                if (e2 < dx)  { err += dx; y0 += sy }
-            }
-        }
-        BEGIN { 
-            W=50; H=10 
-            for(i=0; i<(W*(H+1)); i++) buf[i]=0 
-        }
-        {
-            n = split($0, pts, " ")
-            for(i=1; i<=n; i++) {
-                val[i-1] = int(pts[i]/10)
-                if(val[i-1] > H) val[i-1] = H
-                if(val[i-1] < 0) val[i-1] = 0
-            }
-
-            # Map the buffer based on Graph Style
-            if(style == "1") {
-                for(x=0; x<n && x<W; x++) {
-                    for(y=0; y<=val[x]; y++) buf[y * W + x] = 1
-                }
-            }
-            else if (style == "2") {
-                for(x=0; x<n && x<W; x++) buf[val[x] * W + x] = 1
-            }
-            else if (style == "3") {
-                for(x=0; x<(n-1) && x<(W-1); x++) draw_line(x, val[x], x+1, val[x+1])
-            }
-
-            printf "%s[H", "\033"
-            print ORG "  >>> word@ STATIC DATA GRAPH" RST "\n"
-            
-            for(y=H; y>=0; y--) {
-                printf "%s%2d|%s ", ORG, (y*10), RST
-                line = ""
-                for(x=0; x<W; x++) {
-                    if (buf[y * W + x] == 1) {
-                        if (style == "3") line = line WHT "*" RST
-                        else if (style == "2") line = line WHT "x" RST
-                        else line = line GRN "█" RST
-                    } else {
-                        line = line " "
-                    }
-                }
-                print line
-            }
-            printf "   +"
-            for(x=0; x<W; x++) printf "-"
-            print "\n"
-        }
-    '
-    
-    echo -e "${WHITE} Press any key to return to menu...${NC}"
-    read -n 1 -s
-    render_main_menu
-}
-
-render_main_menu() {
-    trap "tput cnorm; clear; exit" INT TERM
-    printf "\033[H"; clear
-    echo -e "${ORANGE}========================================${NC}"
-    echo -e "${WHITE}           word@ rend!                  ${NC}"
-    echo -e "${ORANGE}========================================${NC}"
-    echo -e " [1] Manual Data Graphing"
-    echo -e " [2] Live CPU Graph Monitor"
-    echo -e " [q] Return to Terminal"
-    echo -e "${ORANGE}========================================${NC}"
-    read -n 1 -p " Select module: " choice
-    case $choice in
-        1) clear; graph_manual ;;
-        2) clear; graph_monitor ;;
-        q|Q) tput cnorm; clear; exit 0 ;;
-        *) echo "Invalid"; sleep 1; render_main_menu ;;
-    esac
 }
 
 
@@ -211,7 +88,7 @@ case "$1" in
         echo -e "Available Commands:"
         echo -e "  write, raw, ?rec, TTF, STF, init"
         echo -e "  ?scan, ?flop, ?gath, ?when, view, del!"
-        echo -e "  help!, ?work, rend!, update"
+        echo -e "  help!, ?work, ?calc, update"
         echo -e "${ORANGE}========================================${NC}"
 
         MISSING_PKGS=()
@@ -223,7 +100,7 @@ case "$1" in
         command -v wodim >/dev/null 2>&1 || MISSING_PKGS+=("wodim")
         command -v qsstv >/dev/null 2>&1 || MISSING_PKGS+=("qsstv")
         command -v convert >/dev/null 2>&1 || MISSING_PKGS+=("imagemagick")
-        command -v bc >/dev/null 2>&1 || MISSING_PKGS+=("bc")
+        command -v python3 >/dev/null 2>&1 || MISSING_PKGS+=("python3")
 
         # The Visual Installer Protocol
         if [ ${#MISSING_PKGS[@]} -gt 0 ]; then
@@ -293,9 +170,7 @@ case "$1" in
             echo -e "│   └── 4) Auto Profile"
             echo -e "├── TTF (Text to Floppy)"
             echo -e "├── init"
-            echo -e "├── rend!"
-            echo -e "│   ├── 1) Shaded 3D Renderer"
-            echo -e "│   └── 2) Live CPU Monitor"
+            echo -e "├── ?calc"
             echo -e "├── ?scan"
             echo -e "│   ├── 1) Surface Scan"
             echo -e "│   ├── 2) Local Hunt"
@@ -321,7 +196,7 @@ case "$1" in
             echo -e "${ORANGE}STF${NC}              - Sound To Floppy. Compresses and transfers audio to disk. Offers 4 profiles: 1) Short (High Q), 2) Standard, 3) Long (Max Length), 4) Auto (Fits exact remaining space)."
             echo -e "${ORANGE}TTF${NC}              - Text To Floppy. Scans the local WordBank text directory and safely archives files to the inserted floppy disk without exceeding capacity."
             echo -e "${ORANGE}view [target]${NC}    - Universal media viewer. Streams text files using a 16-bit typewriter effect or plays mp3 files using the 'mpg123' audio engine."
-            echo -e "${ORANGE}rend!${NC}            - Graphics & Hardware Dashboard. 1) 3D Lathe Demo. 2) Live CPU Graph Monitor."
+            echo -e "${ORANGE}?calc${NC}            - Floating-point math calculator powered by a background Python engine."
             echo -e "${ORANGE}?scan${NC}            - Multi-tool diagnostic suite. 1) Magnetic surface scan. 2) Local system file hunt. 3) Physical disk ledger search. 4) Floppy auto-run trigger. 5) Dependency check."
             echo -e "${ORANGE}del!${NC}             - System burn protocols. Safely erase a specific file (1), purge your entire local WordBank (2), wipe the physical floppy (3), or execute a total factory reset (4)."
             echo -e "${ORANGE}init${NC}             - Initializes a new floppy disk. Generates a random NATO phonetic name, stamps a unique ID, runs a magnetic badblock scan, and updates the local ledger."
@@ -338,7 +213,7 @@ case "$1" in
             echo -e "  ${WHITE}STF${NC}       - Audio to floppy (Profiles: 1-Short, 2-Std, 3-Long, 4-Auto)"
             echo -e "  ${WHITE}TTF${NC}       - Text to floppy"
             echo -e "  ${WHITE}view${NC}      - Play MP3 or stream text"
-            echo -e "  ${WHITE}rend!${NC}     - Graphics & Live CPU Monitor"
+            echo -e "  ${WHITE}?calc${NC}     - Python-powered Math Engine"
             echo -e "  ${WHITE}?scan${NC}     - Tools (1-Surface, 2-Hunt, 3-Ledger, 4-Autorun, 5-Dep Check)"
             echo -e "  ${WHITE}del!${NC}      - Erase (1-File, 2-Bank, 3-Floppy, 4-Reset)"
             echo -e "  ${WHITE}init${NC}      - Format and stamp floppy"
@@ -611,8 +486,8 @@ case "$1" in
         exit 0
         ;;
 
-    "rend!")
-        render_main_menu
+    "?calc")
+        calculator_engine
         ;;
 
     "?scan")
@@ -682,7 +557,7 @@ case "$1" in
                 ;;
             5)
                 echo -e "${WHITE}Checking required packages...${NC}"
-                for pkg in ffmpeg mpg123 arecord wodim qsstv convert bc; do
+                for pkg in ffmpeg mpg123 arecord wodim qsstv convert python3; do
                     if command -v "$pkg" >/dev/null 2>&1; then
                         echo -e "${GREEN}[OK]${NC} $pkg is installed."
                     else
