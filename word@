@@ -25,6 +25,125 @@ mkdir -p "$BANK_DIR/images"
 touch "$LEDGER_FILE"
 
 # ==========================================
+# word@ rend! - 3D & GRAPHING ENGINES
+# ==========================================
+render_3d_demo() {
+    local width=60; local height=30; local A=0; local B=0
+    tput civis; clear
+    while true; do
+        local buffer=()
+        for ((i=0; i<width*height; i++)); do buffer[i]=0; done
+
+        local frame_data=$(awk -v A="$A" -v B="$B" -v W="$width" -v H="$height" '
+            function draw_line(x0, y0, x1, y1) {
+                dx = (x1 > x0 ? x1 - x0 : x0 - x1); sx = (x0 < x1 ? 1 : -1)
+                dy = (y1 > y0 ? y0 - y1 : y1 - y0); sy = (y0 < y1 ? 1 : -1)
+                err = dx - dy
+                while(1) {
+                    if (x0 >= 0 && x0 < W && y0 >= 0 && y0 < H) {
+                        idx = int(y0 * W + x0)
+                        buf[idx]++
+                    }
+                    if (x0 == x1 && y0 == y1) break
+                    e2 = 2 * err
+                    if (e2 > -dy) { err -= dy; x0 += sx }
+                    if (e2 < dx)  { err += dx; y0 += sy }
+                }
+            }
+            BEGIN {
+                V[0]="-1,-1,-1"; V[1]="1,-1,-1"; V[2]="1,1,-1"; V[3]="-1,1,-1"
+                V[4]="-1,-1,1";  V[5]="1,-1,1";  V[6]="1,1,1";  V[7]="-1,1,1"
+                E[0]="0,1"; E[1]="1,2"; E[2]="2,3"; E[3]="3,0"
+                E[4]="4,5"; E[5]="5,6"; E[6]="6,7"; E[7]="7,4"
+                E[8]="0,4"; E[9]="1,5"; E[10]="2,6"; E[11]="3,7"
+                cosA = cos(A); sinA = sin(A); cosB = cos(B); sinB = sin(B)
+                for (i=0; i<8; i++) {
+                    split(V[i], c, ","); x=c[1]; y=c[2]; z=c[3]
+                    xy = x; x = xy*cosA - z*sinA; z = xy*sinA + z*cosA
+                    yz = y; y = yz*cosB - z*sinB; z = yz*sinB + z*cosB
+                    PX[i] = int(W/2 + (x * 12)); PY[i] = int(H/2 + (y * 6))
+                }
+                for (i=0; i<12; i++) {
+                    split(E[i], pts, ","); p1 = pts[1]; p2 = pts[2]
+                    draw_line(PX[p1], PY[p1], PX[p2], PY[p2])
+                }
+                for (i in buf) print i "=" buf[i]
+            }
+        ')
+
+        for val in $frame_data; do
+            idx="${val%=*}"; density="${val#*=}"; buffer[$idx]=$density
+        done
+
+        printf "\033[H"
+        echo -e "${ORANGE}  >>> word@ RENDERER - Press CTRL+C to exit${NC}\n"
+        local out=""
+        for ((y=0; y<height; y++)); do
+            for ((x=0; x<width; x++)); do
+                idx=$((y * width + x))
+                val=${buffer[$idx]}
+                if [[ -z $val || $val -eq 0 ]]; then out+=" "
+                elif [[ $val -eq 1 ]]; then out+="${WHITE}.${NC}"
+                elif [[ $val -eq 2 ]]; then out+="${ORANGE}+${NC}"
+                else out+="${GREEN}█${NC}"
+                fi
+            done
+            out+="\n"
+        done
+        printf "%b" "$out"
+        A=$(echo "$A + 0.05" | bc); B=$(echo "$B + 0.03" | bc)
+    done
+}
+
+graph_monitor() {
+    local width=50; local height=10; local history=()
+    for ((i=0; i<width; i++)); do history[i]=0; done
+    tput civis; clear
+    while true; do
+        local cpu_raw=$(ps -A -o %cpu | awk '{s+=$1} END {print int(s)}')
+        local scaled_val=$(( cpu_raw / 10 ))
+        [[ $scaled_val -gt $height ]] && scaled_val=$height
+        history=("${history[@]:1}"); history+=($scaled_val)
+
+        printf "\033[H"
+        echo -e "${ORANGE}  >>> word@ LIVE PROCESS MONITOR - Press CTRL+C to exit${NC}"
+        echo -e "${WHITE}  Total CPU Load: ${GREEN}${cpu_raw}%${NC}\n"
+        for ((y=height; y>0; y--)); do
+            printf "${ORANGE}%2d|${NC} " "$((y*10))"
+            for ((x=0; x<width; x++)); do
+                val=${history[$x]}
+                if [[ $val -ge $y ]]; then printf "${GREEN}█${NC}"
+                else printf " "
+                fi
+            done
+            printf "\n"
+        done
+        printf "   +$(seq -s- $width|tr -d '[:digit:]')\n"
+        sleep 1
+    done
+}
+
+render_main_menu() {
+    trap "tput cnorm; clear; exit" INT TERM
+    printf "\033[H"; clear
+    echo -e "${ORANGE}========================================${NC}"
+    echo -e "${WHITE}           word@ rend!                  ${NC}"
+    echo -e "${ORANGE}========================================${NC}"
+    echo -e " [1] Shaded 3D Renderer (Demo)"
+    echo -e " [2] Live CPU Graph Monitor"
+    echo -e " [q] Return to Terminal"
+    echo -e "${ORANGE}========================================${NC}"
+    read -n 1 -p " Select module: " choice
+    case $choice in
+        1) clear; render_3d_demo ;;
+        2) clear; graph_monitor ;;
+        q|Q) tput cnorm; clear; exit 0 ;;
+        *) echo "Invalid"; sleep 1; render_main_menu ;;
+    esac
+}
+
+
+# ==========================================
 # THE SWITCHBOARD
 # ==========================================
 case "$1" in
@@ -36,7 +155,7 @@ case "$1" in
         echo -e "Available Commands:"
         echo -e "  write, raw, ?rec, TTF, STF, init"
         echo -e "  ?scan, ?flop, ?gath, ?when, view, del!"
-        echo -e "  help!, ?work, update"
+        echo -e "  help!, ?work, rend!, update"
         echo -e "${ORANGE}========================================${NC}"
 
         MISSING_PKGS=()
@@ -48,6 +167,7 @@ case "$1" in
         command -v wodim >/dev/null 2>&1 || MISSING_PKGS+=("wodim")
         command -v qsstv >/dev/null 2>&1 || MISSING_PKGS+=("qsstv")
         command -v convert >/dev/null 2>&1 || MISSING_PKGS+=("imagemagick")
+        command -v bc >/dev/null 2>&1 || MISSING_PKGS+=("bc")
 
         # The Visual Installer Protocol
         if [ ${#MISSING_PKGS[@]} -gt 0 ]; then
@@ -117,6 +237,9 @@ case "$1" in
             echo -e "│   └── 4) Auto Profile"
             echo -e "├── TTF (Text to Floppy)"
             echo -e "├── init"
+            echo -e "├── rend!"
+            echo -e "│   ├── 1) Shaded 3D Renderer"
+            echo -e "│   └── 2) Live CPU Monitor"
             echo -e "├── ?scan"
             echo -e "│   ├── 1) Surface Scan"
             echo -e "│   ├── 2) Local Hunt"
@@ -142,6 +265,7 @@ case "$1" in
             echo -e "${ORANGE}STF${NC}              - Sound To Floppy. Compresses and transfers audio to disk. Offers 4 profiles: 1) Short (High Q), 2) Standard, 3) Long (Max Length), 4) Auto (Fits exact remaining space)."
             echo -e "${ORANGE}TTF${NC}              - Text To Floppy. Scans the local WordBank text directory and safely archives files to the inserted floppy disk without exceeding capacity."
             echo -e "${ORANGE}view [target]${NC}    - Universal media viewer. Streams text files using a 16-bit typewriter effect or plays mp3 files using the 'mpg123' audio engine."
+            echo -e "${ORANGE}rend!${NC}            - Graphics & Hardware Dashboard. 1) 3D Lathe Demo. 2) Live CPU Graph Monitor."
             echo -e "${ORANGE}?scan${NC}            - Multi-tool diagnostic suite. 1) Magnetic surface scan. 2) Local system file hunt. 3) Physical disk ledger search. 4) Floppy auto-run trigger. 5) Dependency check."
             echo -e "${ORANGE}del!${NC}             - System burn protocols. Safely erase a specific file (1), purge your entire local WordBank (2), wipe the physical floppy (3), or execute a total factory reset (4)."
             echo -e "${ORANGE}init${NC}             - Initializes a new floppy disk. Generates a random NATO phonetic name, stamps a unique ID, runs a magnetic badblock scan, and updates the local ledger."
@@ -158,6 +282,7 @@ case "$1" in
             echo -e "  ${WHITE}STF${NC}       - Audio to floppy (Profiles: 1-Short, 2-Std, 3-Long, 4-Auto)"
             echo -e "  ${WHITE}TTF${NC}       - Text to floppy"
             echo -e "  ${WHITE}view${NC}      - Play MP3 or stream text"
+            echo -e "  ${WHITE}rend!${NC}     - Graphics & Live CPU Monitor"
             echo -e "  ${WHITE}?scan${NC}     - Tools (1-Surface, 2-Hunt, 3-Ledger, 4-Autorun, 5-Dep Check)"
             echo -e "  ${WHITE}del!${NC}      - Erase (1-File, 2-Bank, 3-Floppy, 4-Reset)"
             echo -e "  ${WHITE}init${NC}      - Format and stamp floppy"
@@ -430,6 +555,10 @@ case "$1" in
         exit 0
         ;;
 
+    "rend!")
+        render_main_menu
+        ;;
+
     "?scan")
         echo -e "${ORANGE}========================================${NC}"
         echo -e "${WHITE} ADVANCED SCANNER PROTOCOLS${NC}"
@@ -497,7 +626,7 @@ case "$1" in
                 ;;
             5)
                 echo -e "${WHITE}Checking required packages...${NC}"
-                for pkg in ffmpeg mpg123 arecord wodim qsstv convert; do
+                for pkg in ffmpeg mpg123 arecord wodim qsstv convert bc; do
                     if command -v "$pkg" >/dev/null 2>&1; then
                         echo -e "${GREEN}[OK]${NC} $pkg is installed."
                     else
