@@ -116,14 +116,6 @@ render_3d_demo() {
     done
 }
         '
-        
-        # Safe AWK addition for the next frame
-        A=$(echo "$A 0.05" | awk '{print $1 + $2}')
-        B=$(echo "$B 0.03" | awk '{print $1 + $2}')
-        
-        sleep 0.05
-    done
-}
 
 graph_monitor() {
     local width=50; local height=10; local history=()
