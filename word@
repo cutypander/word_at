@@ -34,21 +34,37 @@ graph_monitor() {
     tput civis; clear
     
     while true; do
-        # TRUE LIVE DATA: Read /proc/stat, wait 0.5s, read again to find the real delta
-        read cpu u1 n1 s1 i1 io1 irq1 sirq1 steal1 < /proc/stat
-        sleep 0.5
-        read cpu u2 n2 s2 i2 io2 irq2 sirq2 steal2 < /proc/stat
+        # 1. AWK parses the kernel safely (Bypasses the Bash float crash)
+        local cpu_raw=$(awk '
+            BEGIN {
+                if ((getline < "/proc/stat") > 0) {
+                    u1=$2; n1=$3; s1=$4; i1=$5; io1=$6; irq1=$7; sirq1=$8; steal1=$9
+                    close("/proc/stat")
+                    system("sleep 0.5")
+                    getline < "/proc/stat"
+                    u2=$2; n2=$3; s2=$4; i2=$5; io2=$6; irq2=$7; sirq2=$8; steal2=$9
+                    close("/proc/stat")
+                    
+                    t1 = u1+n1+s1+i1+io1+irq1+sirq1+steal1
+                    t2 = u2+n2+s2+i2+io2+irq2+sirq2+steal2
+                    
+                    if(t2 > t1) {
+                        diff = t2 - t1
+                        idiff = i2 - i1
+                        print int(100 * (diff - idiff) / diff)
+                    } else {
+                        print 0
+                    }
+                } else {
+                    system("sleep 0.5")
+                    print 0
+                }
+            }
+        ')
         
-        local total1=$((u1+n1+s1+i1+io1+irq1+sirq1+steal1))
-        local total2=$((u2+n2+s2+i2+io2+irq2+sirq2+steal2))
-        local idle_delta=$((i2-i1))
-        local total_delta=$((total2-total1))
+        cpu_raw=${cpu_raw:-0} # Fallback to 0 if completely empty
         
-        local cpu_raw=0
-        if [[ $total_delta -gt 0 ]]; then
-            cpu_raw=$(( 100 * (total_delta - idle_delta) / total_delta ))
-        fi
-
+        # 2. Render locally in Bash
         local scaled_val=$(( cpu_raw / 10 ))
         [[ $scaled_val -gt $height ]] && scaled_val=$height
         history=("${history[@]:1}"); history+=($scaled_val)
@@ -79,28 +95,84 @@ graph_manual() {
     echo -e " Enter data points as space-separated numbers (0-100)"
     echo -e " Example: 10 40 80 100 80 40 10\n"
     read -p " Data: " input_data
+    
+    echo -e "\n${WHITE} Select Graph Style:${NC}"
+    echo -e " [1] Bar Graph"
+    echo -e " [2] Scatter Plot"
+    echo -e " [3] Line Graph (Wireframe)"
+    read -n 1 -p " Choice: " style_choice
+    
     tput civis; clear
 
-    local width=50; local height=10
-    local points=($input_data)
+    # Lock in literal color escapes for AWK execution
+    local ESC=$(printf '\033')
+    local aORG="${ESC}[38;5;208m"
+    local aWHT="${ESC}[1;37m"
+    local aGRN="${ESC}[0;32m"
+    local aRST="${ESC}[0m"
 
-    echo -e "${ORANGE}  >>> word@ STATIC DATA GRAPH${NC}\n"
-    for ((y=height; y>0; y--)); do
-        printf "${ORANGE}%2d|${NC} " "$((y*10))"
-        for ((x=0; x<width; x++)); do
-            if [[ $x -lt ${#points[@]} ]]; then
-                local raw_val=${points[$x]}
-                local scaled_val=$(( raw_val / 10 ))
-                if [[ $scaled_val -ge $y ]]; then printf "${GREEN}█${NC}"
-                else printf " "
-                fi
-            else
-                printf " "
-            fi
-        done
-        printf "\n"
-    done
-    printf "   +$(seq -s- $width|tr -d '[:digit:]')\n\n"
+    echo "$input_data" | awk -v style="$style_choice" -v ORG="$aORG" -v WHT="$aWHT" -v GRN="$aGRN" -v RST="$aRST" '
+        function draw_line(x0, y0, x1, y1,   dx, dy, sx, sy, err, e2) {
+            dx = (x1 > x0 ? x1 - x0 : x0 - x1); sx = (x0 < x1 ? 1 : -1)
+            dy = (y1 > y0 ? y0 - y1 : y1 - y0); sy = (y0 < y1 ? 1 : -1)
+            err = dx - dy
+            while(1) {
+                if (x0 >= 0 && x0 < W && y0 >= 0 && y0 <= H) {
+                    buf[y0 * W + x0] = 1
+                }
+                if (x0 == x1 && y0 == y1) break
+                e2 = 2 * err
+                if (e2 > -dy) { err -= dy; x0 += sx }
+                if (e2 < dx)  { err += dx; y0 += sy }
+            }
+        }
+        BEGIN { 
+            W=50; H=10 
+            for(i=0; i<(W*(H+1)); i++) buf[i]=0 
+        }
+        {
+            n = split($0, pts, " ")
+            for(i=1; i<=n; i++) {
+                val[i-1] = int(pts[i]/10)
+                if(val[i-1] > H) val[i-1] = H
+                if(val[i-1] < 0) val[i-1] = 0
+            }
+
+            # Map the buffer based on Graph Style
+            if(style == "1") {
+                for(x=0; x<n && x<W; x++) {
+                    for(y=0; y<=val[x]; y++) buf[y * W + x] = 1
+                }
+            }
+            else if (style == "2") {
+                for(x=0; x<n && x<W; x++) buf[val[x] * W + x] = 1
+            }
+            else if (style == "3") {
+                for(x=0; x<(n-1) && x<(W-1); x++) draw_line(x, val[x], x+1, val[x+1])
+            }
+
+            printf "%s[H", "\033"
+            print ORG "  >>> word@ STATIC DATA GRAPH" RST "\n"
+            
+            for(y=H; y>=0; y--) {
+                printf "%s%2d|%s ", ORG, (y*10), RST
+                line = ""
+                for(x=0; x<W; x++) {
+                    if (buf[y * W + x] == 1) {
+                        if (style == "3") line = line WHT "*" RST
+                        else if (style == "2") line = line WHT "x" RST
+                        else line = line GRN "█" RST
+                    } else {
+                        line = line " "
+                    }
+                }
+                print line
+            }
+            printf "   +"
+            for(x=0; x<W; x++) printf "-"
+            print "\n"
+        }
+    '
     
     echo -e "${WHITE} Press any key to return to menu...${NC}"
     read -n 1 -s
