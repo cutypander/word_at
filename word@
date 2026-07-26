@@ -27,38 +27,13 @@ touch "$LEDGER_FILE"
 # ==========================================
 # word@ ?calc - HYBRID PYTHON MATH ENGINE
 # ==========================================
-calculator_engine() {
-    clear
-    echo -e "${ORANGE}========================================${NC}"
-    echo -e "${WHITE} word@ ADVANCED MATH ENGINE${NC}"
-    echo -e "${ORANGE}========================================${NC}"
-    echo -e " ${WHITE}[Operators]${NC} +, -, *, /, ** (Power), % (Modulo)"
-    echo -e " ${WHITE}[Brackets]${NC}  (), [], {} (Auto-translates to parens)"
-    echo -e " ${WHITE}[Functions]${NC} sqrt(x), factorial(x), abs(x), log(x)"
-    echo -e " ${WHITE}[Trig]     ${NC} sin(x), cos(x), tan(x), degrees(x)"
-    echo -e " ${WHITE}[Constants]${NC} pi, e, tau"
-    echo -e "${ORANGE}----------------------------------------${NC}"
-    echo -e " Example: factorial(5) / (sqrt(8**2 + 6**2))"
-    echo -e " Type 'pi' to watch infinite series math live."
-    echo -e " Type 'q' or 'exit' to return to terminal."
-    echo -e "${ORANGE}========================================${NC}"
-
-    if ! command -v python3 >/dev/null 2>&1; then
-        echo -e "${RED}Error: python3 is not installed.${NC}"
-        exit 1
-    fi
-
-    while true; do
-        read -p " Math > " math_input
-        
-        if [[ "$math_input" == "q" || "$math_input" == "exit" || -z "$math_input" ]]; then
-            echo -e "${WHITE}Exiting engine...${NC}"
-            sleep 1; clear; exit 0
-            
-        elif [[ "${math_input,,}" == "pi" ]]; then
-            echo -e "${ORANGE} STREAMING NILAKANTHA SERIES (Press CTRL+C to stop)${NC}"
-            tput civis
-            python3 -c "
+execute_python_math() {
+    local math_input="$1"
+    
+    if [[ "${math_input,,}" == "pi" ]]; then
+        echo -e "${ORANGE} STREAMING NILAKANTHA SERIES (Press CTRL+C to stop)${NC}"
+        tput civis
+        python3 -c "
 import sys, time
 pi_est = 3.0
 n = 2
@@ -70,7 +45,7 @@ try:
         term = 4.0 / (n * (n+1) * (n+2))
         if sign == 1: pi_est += term
         else: pi_est -= term
-        sys.stdout.write(f'\r \033[0;32m[Iter {iteration}]\033[0m Math: {'+' if sign==1 else '-'}{term:.8f} | Current Pi ≈ {pi_est:.14f}')
+        sys.stdout.write(f'\r \033[0;32m[Iter {iteration}]\033[0m Math: {\"+\" if sign==1 else \"-\"}{term:.8f} | Current Pi ≈ {pi_est:.14f}')
         sys.stdout.flush()
         n += 2
         sign *= -1
@@ -80,17 +55,17 @@ except KeyboardInterrupt:
     sys.stdout.write('\n\n\033[0;31m Calculation Halted.\033[0m\n')
     sys.exit(0)
 "
-            tput cnorm
-            echo -e "\n"
-        else
-            python3 -c "
+        tput cnorm
+        echo -e "\n"
+    else
+        python3 -c "
 import sys, time
 from math import *
 
 expr = sys.argv[1]
 
-# Erase spaces entirely to protect bracket parsing logic
-s = expr.replace('{','(').replace('}',')').replace('[','(').replace(']',')').replace('x','*').replace('X','*')
+# Erase spaces entirely to protect bracket parsing logic and auto-convert ^ to **
+s = expr.replace('{','(').replace('}',')').replace('[','(').replace(']',')').replace('x','*').replace('X','*').replace('^','**')
 s = s.replace(' ', '')
 
 print(f'\033[1;37m[Original]\033[0m {s}')
@@ -98,12 +73,10 @@ print(f'\033[1;37m[Original]\033[0m {s}')
 try:
     step = 1
     while '(' in s:
-        # Find deepest open bracket and its matching close bracket
         start = s.rfind('(')
         end = s.find(')', start)
         if end == -1: raise ValueError('Unmatched bracket')
         
-        # Capture attached functions (like 'sqrt' or 'factorial')
         func_start = start
         while func_start > 0 and s[func_start-1].isalpha():
             func_start -= 1
@@ -125,7 +98,34 @@ try:
 except Exception as e:
     print('\033[0;31m Invalid Syntax or Math Error\033[0m\n')
 " "$math_input"
+    fi
+}
+
+interactive_calculator() {
+    clear
+    echo -e "${ORANGE}========================================${NC}"
+    echo -e "${WHITE} INTERACTIVE MATH ENGINE${NC}"
+    echo -e "${ORANGE}========================================${NC}"
+    echo -e " ${WHITE}[Operators]${NC} +, -, *, /, ** or ^ (Power), % (Modulo)"
+    echo -e " ${WHITE}[Brackets]${NC}  (), [], {} (Auto-translates to parens)"
+    echo -e " ${WHITE}[Functions]${NC} sqrt(x), factorial(x), abs(x), log(x)"
+    echo -e " ${WHITE}[Trig]     ${NC} sin(x), cos(x), tan(x), degrees(x)"
+    echo -e " ${WHITE}[Constants]${NC} pi, e, tau"
+    echo -e "${ORANGE}----------------------------------------${NC}"
+    echo -e " Type 'pi' to watch infinite series math live."
+    echo -e " Type 'q' or 'exit' to return to menu."
+    echo -e "${ORANGE}========================================${NC}"
+
+    while true; do
+        read -p " Math > " math_input
+        
+        if [[ "$math_input" == "q" || "$math_input" == "exit" || -z "$math_input" ]]; then
+            echo -e "${WHITE}Returning to menu...${NC}"
+            sleep 1; calculator_engine
+            return
         fi
+        
+        execute_python_math "$math_input"
     done
 }
 
