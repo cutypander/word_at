@@ -30,47 +30,111 @@ touch "$LEDGER_FILE"
 calculator_engine() {
     clear
     echo -e "${ORANGE}========================================${NC}"
-    echo -e "${WHITE} word@ CALCULATOR (PYTHON ENGINE)${NC}"
+    echo -e "${WHITE} word@ ADVANCED MATH ENGINE${NC}"
     echo -e "${ORANGE}========================================${NC}"
-    echo -e " Supports +, -, *, /, (), and decimals."
-    echo -e " You can use 'x' or 'X' for multiplication."
+    echo -e " Supports: +, -, *, /, {}, [], Pythagoras & Trig."
+    echo -e " Examples: 5000/{62-[360/(90/3)]} or sqrt(16)+4"
+    echo -e " Type 'pi' to stream the Pi sequence live."
     echo -e " Type 'q' or 'exit' to return to terminal."
     echo -e "${ORANGE}========================================${NC}"
 
-    # Verify Python exists before starting
     if ! command -v python3 >/dev/null 2>&1; then
-        echo -e "${RED}Error: python3 is not installed. Run 'word@' to install dependencies.${NC}"
+        echo -e "${RED}Error: python3 is not installed.${NC}"
         exit 1
     fi
 
     while true; do
-        read -p " Calc > " math_input
+        read -p " Math > " math_input
         
-        # Exit triggers
         if [[ "$math_input" == "q" || "$math_input" == "exit" || -z "$math_input" ]]; then
-            echo -e "${WHITE}Exiting calculator...${NC}"
-            sleep 1
-            clear
-            exit 0
-        fi
-        
-        # Sanitize input: Translate 'x' and 'X' to standard '*'
-        clean_input=$(echo "$math_input" | tr 'xX' '**')
-        
-        # The Back-Pass: Send string to python, evaluate, and return output
-        result=$(python3 -c "
+            echo -e "${WHITE}Exiting engine...${NC}"
+            sleep 1; clear; exit 0
+            
+        elif [[ "${math_input,,}" == "pi" ]]; then
+            echo -e "${ORANGE} STREAMING PI (Press CTRL+C to stop)${NC}"
+            tput civis
+            
+            # The Unbounded Spigot Algorithm
+            python3 -c "
+import sys, time
 try:
-    ans = eval('$clean_input')
-    # Format float cleanly (removes trailing .0 if it's a whole number)
-    print(f'{ans:g}') 
-except Exception:
-    print('ERR')
-" 2>/dev/null)
-
-        if [[ "$result" == "ERR" || -z "$result" ]]; then
-            echo -e "${RED} Invalid syntax.${NC}"
+    q, r, t, k, n, l = 1, 0, 1, 1, 3, 3
+    first = True
+    while True:
+        if 4*q+r-t < n*t:
+            sys.stdout.write(str(n))
+            if first:
+                sys.stdout.write('.')
+                first = False
+            sys.stdout.flush()
+            time.sleep(0.01) # Terminal streaming speed
+            nr = 10*(r-n*t)
+            n  = ((10*(3*q+r))//t)-10*n
+            q  *= 10
+            r  = nr
+        else:
+            nr = (2*q+r)*l
+            nn = (q*(7*k)+2+(r*l))//(t*l)
+            q  *= k
+            t  *= l
+            l  += 2
+            k += 1
+            n  = nn
+            r  = nr
+except KeyboardInterrupt:
+    sys.exit(0)
+"
+            tput cnorm
+            echo -e "\n"
+            
         else
-            echo -e " ${GREEN}= $result${NC}\n"
+            # The Step-by-Step Algebraic Solver
+            python3 -c "
+import sys, time, re
+from math import *
+
+expr = sys.argv[1]
+
+# Sanitization: Fix Python syntax rules (brackets & multiplication)
+s = expr.replace('{','(').replace('}',')').replace('[','(').replace(']',')').replace('x','*').replace('X','*')
+
+print(f'\033[1;37m[Original]\033[0m {s}')
+
+try:
+    step = 1
+    # Loop to find and solve the innermost brackets iteratively
+    while '(' in s:
+        # Regex hunts for brackets, capturing any math functions (like sqrt) attached to them
+        match = re.search(r'([a-zA-Z_]\w*)?\(([^()]+)\)', s)
+        if match:
+            func = match.group(1)
+            inner = match.group(2)
+            
+            if func:
+                val = eval(f'{func}({inner})')
+            else:
+                val = eval(inner)
+                
+            # Clean up trailing .0 from whole numbers
+            if val == int(val): val = int(val)
+            
+            # Rewrite the string with the solved piece
+            s = s[:match.start()] + str(val) + s[match.end():]
+            
+            time.sleep(0.5)
+            print(f'\033[38;5;208m[Step {step}]\033[0m  {s}')
+            step += 1
+            
+    # Final evaluation of the simplified string
+    ans = eval(s)
+    if ans == int(ans): ans = int(ans)
+    
+    time.sleep(0.5)
+    print(f'\033[0;32m[Final]\033[0m    {ans}\n')
+    
+except Exception as e:
+    print('\033[0;31m Invalid Syntax or Math Error\033[0m\n')
+" "$math_input"
         fi
     done
 }
