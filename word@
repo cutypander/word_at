@@ -30,7 +30,25 @@ touch "$LEDGER_FILE"
 render_3d_demo() {
     local A=0; local B=0
     tput civis; clear
+
+    # --- THE LOADING SEQUENCE (VISIBLE DELAY) ---
+    echo -e "${ORANGE}========================================${NC}"
+    echo -e "${WHITE} INITIALIZING 3D RENDER ENGINE...${NC}"
+    echo -e "${ORANGE}========================================${NC}"
+    
+    local bar=""
+    for ((i=0; i<=20; i++)); do
+        bar+="█"
+        printf "\r${WHITE} Compiling geometry: ${GREEN}[%-20s] %d%%${NC}" "$bar" $((i * 5))
+        sleep 0.05
+    done
+    echo -e "\n${WHITE} Booting Lathe Matrix...${NC}"
+    sleep 0.5
+    clear
+    # ---------------------------------------------
+
     while true; do
+        # We drop /dev/null and use ONLY a BEGIN block so awk never listens for stdin
         awk -v A="$A" -v B="$B" -v W=60 -v H=30 \
             -v ORG="$ORANGE" -v WHT="$WHITE" -v GRN="$GREEN" -v RST="$NC" '
             function draw_line(x0, y0, x1, y1) {
@@ -49,6 +67,9 @@ render_3d_demo() {
                 }
             }
             BEGIN {
+                # STRICT INIT: Force awk to recognize the buffer as integers
+                for(i=0; i<(W*H); i++) buf[i] = 0
+
                 V[0]="-1,-1,-1"; V[1]="1,-1,-1"; V[2]="1,1,-1"; V[3]="-1,1,-1"
                 V[4]="-1,-1,1";  V[5]="1,-1,1";  V[6]="1,1,1";  V[7]="-1,1,1"
                 E[0]="0,1"; E[1]="1,2"; E[2]="2,3"; E[3]="3,0"
@@ -76,7 +97,7 @@ render_3d_demo() {
                     for (x=0; x<W; x++) {
                         idx = y * W + x
                         val = buf[idx]
-                        if (val == 0 || val == "") line = line " "
+                        if (val == 0) line = line " "
                         else if (val == 1) line = line WHT "." RST
                         else if (val == 2) line = line ORG "+" RST
                         else line = line GRN "█" RST
@@ -84,14 +105,15 @@ render_3d_demo() {
                     print line
                 }
             }
-            ' /dev/null
-
-            # Native awk math for rotation angles (no bc required)
-            A=$(awk -v a="$A" 'BEGIN {print a + 0.05}')
-            B=$(awk -v b="$B" 'BEGIN {print b + 0.03}')
-            sleep 0.03
-        done
-    }
+        '
+        
+        # Safe math iteration with fallback zeros
+        A=$(awk -v a="${A:-0}" 'BEGIN {print a + 0.05}')
+        B=$(awk -v b="${B:-0}" 'BEGIN {print b + 0.03}')
+        
+        sleep 0.05
+    done
+}
 
 graph_monitor() {
     local width=50; local height=10; local history=()
