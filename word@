@@ -25,110 +25,37 @@ mkdir -p "$BANK_DIR/images"
 touch "$LEDGER_FILE"
 
 # ==========================================
-# word@ rend! - 3D & GRAPHING ENGINES
+# word@ rend! - GRAPHING ENGINES
 # ==========================================
-render_3d_demo() {
-    local A=0; local B=0
-    local W=50; local H=22
-    export LC_NUMERIC=C # Force strict math parsing
-    
-    tput civis; clear
-
-    # Native terminal color mapping (avoids raw ANSI parsing errors)
-    local aORG=$(tput setaf 208 2>/dev/null || tput setaf 3)
-    local aWHT=$(tput setaf 7)
-    local aGRN=$(tput setaf 2)
-    local aRST=$(tput sgr0)
-
-    while true; do
-        # Anchor the cursor to row 0, col 0 (stops the infinite scrolling bug)
-        tput cup 0 0
-        
-        # Pure BEGIN block execution means awk never waits for input or gets choked by pipes
-        awk -v A="$A" -v B="$B" -v W="$W" -v H="$H" \
-            -v ORG="$aORG" -v WHT="$aWHT" -v GRN="$aGRN" -v RST="$aRST" '
-            function draw_line(x0, y0, x1, y1,   dx, dy, sx, sy, err, e2, idx) {
-                dx = (x1 > x0 ? x1 - x0 : x0 - x1); sx = (x0 < x1 ? 1 : -1)
-                dy = (y1 > y0 ? y0 - y1 : y1 - y0); sy = (y0 < y1 ? 1 : -1)
-                err = dx - dy
-                while(1) {
-                    if (x0 >= 0 && x0 < W && y0 >= 0 && y0 < H) {
-                        idx = int(y0 * W + x0)
-                        buf[idx]++
-                    }
-                    if (x0 == x1 && y0 == y1) break
-                    e2 = 2 * err
-                    if (e2 > -dy) { err -= dy; x0 += sx }
-                    if (e2 < dx)  { err += dx; y0 += sy }
-                }
-            }
-            BEGIN {
-                for(i=0; i<(W*H); i++) buf[i] = 0
-
-                V[0]="-1,-1,-1"; V[1]="1,-1,-1"; V[2]="1,1,-1"; V[3]="-1,1,-1"
-                V[4]="-1,-1,1";  V[5]="1,-1,1";  V[6]="1,1,1";  V[7]="-1,1,1"
-                E[0]="0,1"; E[1]="1,2"; E[2]="2,3"; E[3]="3,0"
-                E[4]="4,5"; E[5]="5,6"; E[6]="6,7"; E[7]="7,4"
-                E[8]="0,4"; E[9]="1,5"; E[10]="2,6"; E[11]="3,7"
-
-                A = A + 0; B = B + 0
-                cosA = cos(A); sinA = sin(A); cosB = cos(B); sinB = sin(B)
-
-                for (i=0; i<8; i++) {
-                    split(V[i], c, ","); x=c[1]+0; y=c[2]+0; z=c[3]+0
-                    xy = x; x = xy*cosA - z*sinA; z = xy*sinA + z*cosA
-                    yz = y; y = yz*cosB - z*sinB; z = yz*sinB + z*cosB
-                    
-                    # Adapted multiplier to fit the new 50x22 canvas
-                    PX[i] = int(W/2 + (x * 10))
-                    PY[i] = int(H/2 + (y * 5))
-                }
-                
-                for (i=0; i<12; i++) {
-                    split(E[i], pts, ","); p1 = pts[1]+0; p2 = pts[2]+0
-                    draw_line(PX[p1], PY[p1], PX[p2], PY[p2])
-                }
-
-                print ORG "  >>> word@ RENDERER - Press CTRL+C to exit" RST
-                print ""
-
-                for (y=0; y<H; y++) {
-                    line = ""
-                    for (x=0; x<W; x++) {
-                        idx = int(y * W + x)
-                        val = buf[idx]
-                        if (val == 0) line = line " "
-                        else if (val == 1) line = line WHT "." RST
-                        else if (val == 2) line = line ORG "+" RST
-                        else line = line GRN "█" RST
-                    }
-                    print line
-                }
-                fflush()
-            }
-        '
-        
-        # Iterate rotation angles
-        A=$(awk -v a="$A" 'BEGIN {print a + 0.05}')
-        B=$(awk -v b="$B" 'BEGIN {print b + 0.03}')
-        
-        sleep 0.05
-    done
-}
 
 graph_monitor() {
     local width=50; local height=10; local history=()
     for ((i=0; i<width; i++)); do history[i]=0; done
     tput civis; clear
+    
     while true; do
-        local cpu_raw=$(ps -A -o %cpu | awk '{s+=$1} END {print int(s)}')
+        # TRUE LIVE DATA: Read /proc/stat, wait 0.5s, read again to find the real delta
+        read cpu u1 n1 s1 i1 io1 irq1 sirq1 steal1 < /proc/stat
+        sleep 0.5
+        read cpu u2 n2 s2 i2 io2 irq2 sirq2 steal2 < /proc/stat
+        
+        local total1=$((u1+n1+s1+i1+io1+irq1+sirq1+steal1))
+        local total2=$((u2+n2+s2+i2+io2+irq2+sirq2+steal2))
+        local idle_delta=$((i2-i1))
+        local total_delta=$((total2-total1))
+        
+        local cpu_raw=0
+        if [[ $total_delta -gt 0 ]]; then
+            cpu_raw=$(( 100 * (total_delta - idle_delta) / total_delta ))
+        fi
+
         local scaled_val=$(( cpu_raw / 10 ))
         [[ $scaled_val -gt $height ]] && scaled_val=$height
         history=("${history[@]:1}"); history+=($scaled_val)
 
         printf "\033[H"
         echo -e "${ORANGE}  >>> word@ LIVE PROCESS MONITOR - Press CTRL+C to exit${NC}"
-        echo -e "${WHITE}  Total CPU Load: ${GREEN}${cpu_raw}%${NC}\n"
+        echo -e "${WHITE}  Kernel Load (Realtime Delta): ${GREEN}${cpu_raw}%${NC}\n"
         for ((y=height; y>0; y--)); do
             printf "${ORANGE}%2d|${NC} " "$((y*10))"
             for ((x=0; x<width; x++)); do
@@ -140,8 +67,44 @@ graph_monitor() {
             printf "\n"
         done
         printf "   +$(seq -s- $width|tr -d '[:digit:]')\n"
-        sleep 1
     done
+}
+
+graph_manual() {
+    tput civis; clear
+    echo -e "${ORANGE}========================================${NC}"
+    echo -e "${WHITE} MANUAL DATA GRAPHING TOOL${NC}"
+    echo -e "${ORANGE}========================================${NC}"
+    tput cnorm
+    echo -e " Enter data points as space-separated numbers (0-100)"
+    echo -e " Example: 10 40 80 100 80 40 10\n"
+    read -p " Data: " input_data
+    tput civis; clear
+
+    local width=50; local height=10
+    local points=($input_data)
+
+    echo -e "${ORANGE}  >>> word@ STATIC DATA GRAPH${NC}\n"
+    for ((y=height; y>0; y--)); do
+        printf "${ORANGE}%2d|${NC} " "$((y*10))"
+        for ((x=0; x<width; x++)); do
+            if [[ $x -lt ${#points[@]} ]]; then
+                local raw_val=${points[$x]}
+                local scaled_val=$(( raw_val / 10 ))
+                if [[ $scaled_val -ge $y ]]; then printf "${GREEN}█${NC}"
+                else printf " "
+                fi
+            else
+                printf " "
+            fi
+        done
+        printf "\n"
+    done
+    printf "   +$(seq -s- $width|tr -d '[:digit:]')\n\n"
+    
+    echo -e "${WHITE} Press any key to return to menu...${NC}"
+    read -n 1 -s
+    render_main_menu
 }
 
 render_main_menu() {
@@ -150,13 +113,13 @@ render_main_menu() {
     echo -e "${ORANGE}========================================${NC}"
     echo -e "${WHITE}           word@ rend!                  ${NC}"
     echo -e "${ORANGE}========================================${NC}"
-    echo -e " [1] Shaded 3D Renderer (Demo)"
+    echo -e " [1] Manual Data Graphing"
     echo -e " [2] Live CPU Graph Monitor"
     echo -e " [q] Return to Terminal"
     echo -e "${ORANGE}========================================${NC}"
     read -n 1 -p " Select module: " choice
     case $choice in
-        1) clear; render_3d_demo ;;
+        1) clear; graph_manual ;;
         2) clear; graph_monitor ;;
         q|Q) tput cnorm; clear; exit 0 ;;
         *) echo "Invalid"; sleep 1; render_main_menu ;;
