@@ -29,35 +29,23 @@ touch "$LEDGER_FILE"
 # ==========================================
 render_3d_demo() {
     local A=0; local B=0
-    export LC_NUMERIC=C # Forces strict decimal dot parsing (fixes UK/EU locale comma bugs)
+    local W=50; local H=22
+    export LC_NUMERIC=C # Force strict math parsing
+    
     tput civis; clear
 
-    # --- THE LOADING SEQUENCE (VISIBLE DELAY) ---
-    echo -e "${ORANGE}========================================${NC}"
-    echo -e "${WHITE} INITIALIZING 3D RENDER ENGINE...${NC}"
-    echo -e "${ORANGE}========================================${NC}"
-    
-    local bar=""
-    for ((i=0; i<=20; i++)); do
-        bar+="█"
-        printf "\r${WHITE} Compiling geometry: ${GREEN}[%-20s] %d%%${NC}" "$bar" $((i * 5))
-        sleep 0.05
-    done
-    echo -e "\n${WHITE} Booting Lathe Matrix...${NC}"
-    sleep 0.5
-    clear
-    # ---------------------------------------------
-
-    # Generate literal ESC characters (0x1B) so AWK prints true terminal colors
-    local ESC=$(printf '\033')
-    local aORG="${ESC}[38;5;208m"
-    local aWHT="${ESC}[1;37m"
-    local aGRN="${ESC}[0;32m"
-    local aRST="${ESC}[0m"
+    # Native terminal color mapping (avoids raw ANSI parsing errors)
+    local aORG=$(tput setaf 208 2>/dev/null || tput setaf 3)
+    local aWHT=$(tput setaf 7)
+    local aGRN=$(tput setaf 2)
+    local aRST=$(tput sgr0)
 
     while true; do
-        # We explicitly pipe echo into awk and strictly scope all local variables
-        echo "" | awk -v A="$A" -v B="$B" -v W=60 -v H=30 \
+        # Anchor the cursor to row 0, col 0 (stops the infinite scrolling bug)
+        tput cup 0 0
+        
+        # Pure BEGIN block execution means awk never waits for input or gets choked by pipes
+        awk -v A="$A" -v B="$B" -v W="$W" -v H="$H" \
             -v ORG="$aORG" -v WHT="$aWHT" -v GRN="$aGRN" -v RST="$aRST" '
             function draw_line(x0, y0, x1, y1,   dx, dy, sx, sy, err, e2, idx) {
                 dx = (x1 > x0 ? x1 - x0 : x0 - x1); sx = (x0 < x1 ? 1 : -1)
@@ -74,8 +62,7 @@ render_3d_demo() {
                     if (e2 < dx)  { err += dx; y0 += sy }
                 }
             }
-            {
-                # Initialize buffer to strict integers
+            BEGIN {
                 for(i=0; i<(W*H); i++) buf[i] = 0
 
                 V[0]="-1,-1,-1"; V[1]="1,-1,-1"; V[2]="1,1,-1"; V[3]="-1,1,-1"
@@ -84,7 +71,6 @@ render_3d_demo() {
                 E[4]="4,5"; E[5]="5,6"; E[6]="6,7"; E[7]="7,4"
                 E[8]="0,4"; E[9]="1,5"; E[10]="2,6"; E[11]="3,7"
 
-                # Force float parsing for the rotation matrix
                 A = A + 0; B = B + 0
                 cosA = cos(A); sinA = sin(A); cosB = cos(B); sinB = sin(B)
 
@@ -92,8 +78,10 @@ render_3d_demo() {
                     split(V[i], c, ","); x=c[1]+0; y=c[2]+0; z=c[3]+0
                     xy = x; x = xy*cosA - z*sinA; z = xy*sinA + z*cosA
                     yz = y; y = yz*cosB - z*sinB; z = yz*sinB + z*cosB
-                    PX[i] = int(W/2 + (x * 12))
-                    PY[i] = int(H/2 + (y * 6))
+                    
+                    # Adapted multiplier to fit the new 50x22 canvas
+                    PX[i] = int(W/2 + (x * 10))
+                    PY[i] = int(H/2 + (y * 5))
                 }
                 
                 for (i=0; i<12; i++) {
@@ -101,9 +89,8 @@ render_3d_demo() {
                     draw_line(PX[p1], PY[p1], PX[p2], PY[p2])
                 }
 
-                # Reset cursor without flickering
-                printf "%s[H", "\033"
-                print ORG "  >>> word@ RENDERER - Press CTRL+C to exit" RST "\n"
+                print ORG "  >>> word@ RENDERER - Press CTRL+C to exit" RST
+                print ""
 
                 for (y=0; y<H; y++) {
                     line = ""
@@ -117,7 +104,17 @@ render_3d_demo() {
                     }
                     print line
                 }
+                fflush()
             }
+        '
+        
+        # Iterate rotation angles
+        A=$(awk -v a="$A" 'BEGIN {print a + 0.05}')
+        B=$(awk -v b="$B" 'BEGIN {print b + 0.03}')
+        
+        sleep 0.05
+    done
+}
         '
         
         # Safe AWK addition for the next frame
