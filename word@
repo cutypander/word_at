@@ -29,6 +29,7 @@ touch "$LEDGER_FILE"
 # ==========================================
 render_3d_demo() {
     local A=0; local B=0
+    export LC_NUMERIC=C # Forces strict decimal dot parsing (fixes UK/EU locale comma bugs)
     tput civis; clear
 
     # --- THE LOADING SEQUENCE (VISIBLE DELAY) ---
@@ -47,17 +48,24 @@ render_3d_demo() {
     clear
     # ---------------------------------------------
 
+    # Generate literal ESC characters (0x1B) so AWK prints true terminal colors
+    local ESC=$(printf '\033')
+    local aORG="${ESC}[38;5;208m"
+    local aWHT="${ESC}[1;37m"
+    local aGRN="${ESC}[0;32m"
+    local aRST="${ESC}[0m"
+
     while true; do
-        # We drop /dev/null and use ONLY a BEGIN block so awk never listens for stdin
-        awk -v A="$A" -v B="$B" -v W=60 -v H=30 \
-            -v ORG="$ORANGE" -v WHT="$WHITE" -v GRN="$GREEN" -v RST="$NC" '
-            function draw_line(x0, y0, x1, y1) {
+        # We explicitly pipe echo into awk and strictly scope all local variables
+        echo "" | awk -v A="$A" -v B="$B" -v W=60 -v H=30 \
+            -v ORG="$aORG" -v WHT="$aWHT" -v GRN="$aGRN" -v RST="$aRST" '
+            function draw_line(x0, y0, x1, y1,   dx, dy, sx, sy, err, e2, idx) {
                 dx = (x1 > x0 ? x1 - x0 : x0 - x1); sx = (x0 < x1 ? 1 : -1)
                 dy = (y1 > y0 ? y0 - y1 : y1 - y0); sy = (y0 < y1 ? 1 : -1)
                 err = dx - dy
                 while(1) {
                     if (x0 >= 0 && x0 < W && y0 >= 0 && y0 < H) {
-                        idx = y0 * W + x0
+                        idx = int(y0 * W + x0)
                         buf[idx]++
                     }
                     if (x0 == x1 && y0 == y1) break
@@ -66,8 +74,8 @@ render_3d_demo() {
                     if (e2 < dx)  { err += dx; y0 += sy }
                 }
             }
-            BEGIN {
-                # STRICT INIT: Force awk to recognize the buffer as integers
+            {
+                # Initialize buffer to strict integers
                 for(i=0; i<(W*H); i++) buf[i] = 0
 
                 V[0]="-1,-1,-1"; V[1]="1,-1,-1"; V[2]="1,1,-1"; V[3]="-1,1,-1"
@@ -76,26 +84,31 @@ render_3d_demo() {
                 E[4]="4,5"; E[5]="5,6"; E[6]="6,7"; E[7]="7,4"
                 E[8]="0,4"; E[9]="1,5"; E[10]="2,6"; E[11]="3,7"
 
+                # Force float parsing for the rotation matrix
+                A = A + 0; B = B + 0
                 cosA = cos(A); sinA = sin(A); cosB = cos(B); sinB = sin(B)
+
                 for (i=0; i<8; i++) {
-                    split(V[i], c, ","); x=c[1]; y=c[2]; z=c[3]
+                    split(V[i], c, ","); x=c[1]+0; y=c[2]+0; z=c[3]+0
                     xy = x; x = xy*cosA - z*sinA; z = xy*sinA + z*cosA
                     yz = y; y = yz*cosB - z*sinB; z = yz*sinB + z*cosB
                     PX[i] = int(W/2 + (x * 12))
                     PY[i] = int(H/2 + (y * 6))
                 }
+                
                 for (i=0; i<12; i++) {
-                    split(E[i], pts, ","); p1 = pts[1]; p2 = pts[2]
+                    split(E[i], pts, ","); p1 = pts[1]+0; p2 = pts[2]+0
                     draw_line(PX[p1], PY[p1], PX[p2], PY[p2])
                 }
 
-                printf "\033[H"
+                # Reset cursor without flickering
+                printf "%s[H", "\033"
                 print ORG "  >>> word@ RENDERER - Press CTRL+C to exit" RST "\n"
 
                 for (y=0; y<H; y++) {
                     line = ""
                     for (x=0; x<W; x++) {
-                        idx = y * W + x
+                        idx = int(y * W + x)
                         val = buf[idx]
                         if (val == 0) line = line " "
                         else if (val == 1) line = line WHT "." RST
@@ -107,9 +120,9 @@ render_3d_demo() {
             }
         '
         
-        # Safe math iteration with fallback zeros
-        A=$(awk -v a="${A:-0}" 'BEGIN {print a + 0.05}')
-        B=$(awk -v b="${B:-0}" 'BEGIN {print b + 0.03}')
+        # Safe AWK addition for the next frame
+        A=$(echo "$A 0.05" | awk '{print $1 + $2}')
+        B=$(echo "$B 0.03" | awk '{print $1 + $2}')
         
         sleep 0.05
     done
