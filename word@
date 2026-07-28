@@ -6,6 +6,7 @@
 BANK_DIR="$HOME/word_at_bank"
 FLOPPY_DIR="/mnt/floppy"
 LEDGER_FILE="$HOME/.floppy_ledger"
+VIRTUAL_IMG="$BANK_DIR/.virtual_floppy.img"
 SAFE_OVERHEAD=50
 
 # The Word@ Color Palette
@@ -22,7 +23,454 @@ NATO=(ALPHA BRAVO CHARLIE DELTA ECHO FOXTROT GOLF HOTEL INDIA JULIETT KILO LIMA 
 mkdir -p "$BANK_DIR/text"
 mkdir -p "$BANK_DIR/audio"
 mkdir -p "$BANK_DIR/images"
+mkdir -p "$BANK_DIR/games"
 touch "$LEDGER_FILE"
+
+
+# ==========================================
+# GLOBAL HELPERS
+# ==========================================
+press_enter() {
+    echo -e "\n${WHITE}Press [ENTER] to continue...${NC}"
+    read -r
+}
+
+is_pkg_installed() {
+    dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q "ok installed"
+}
+
+
+# ==========================================
+# word@ ?inst - SYSTEM PACKAGE MANAGER
+# ==========================================
+installer_module() {
+    local BASE_PKGS=("python3" "curl")
+    local MEDIA_PKGS=("ffmpeg" "mpg123" "alsa-utils" "wodim" "qsstv" "imagemagick")
+    local EXTRA_PKGS=("python3-blessed" "dosfstools") 
+    local ALL_PKGS=("${BASE_PKGS[@]}" "${MEDIA_PKGS[@]}" "${EXTRA_PKGS[@]}")
+
+    install_tier() {
+        local tier_name="$1"
+        shift
+        local pkgs=("$@")
+        local to_install=()
+
+        for pkg in "${pkgs[@]}"; do
+            if ! is_pkg_installed "$pkg"; then
+                to_install+=("$pkg")
+            fi
+        done
+
+        if [ ${#to_install[@]} -eq 0 ]; then
+            echo -e "\n${GREEN}All packages in this tier are already installed.${NC}"
+            sleep 2
+            return
+        fi
+
+        echo -e "\n${WHITE}The following packages will be installed for the $tier_name tier:${NC}"
+        for pkg in "${to_install[@]}"; do
+            echo -e " - ${ORANGE}$pkg${NC}"
+        done
+        
+        read -p "Proceed with installation? (Y/N): " confirm
+        if [[ "${confirm,,}" == "y" ]]; then
+            echo -e "${ORANGE}Updating grid repositories...${NC}"
+            sudo apt-get update -qq
+            for pkg in "${to_install[@]}"; do
+                echo -e "${WHITE}Installing $pkg...${NC}"
+                sudo apt-get install -y "$pkg"
+            done
+            echo -e "${GREEN}Installation complete.${NC}"
+        else
+            echo -e "${WHITE}Installation aborted.${NC}"
+        fi
+        sleep 2
+    }
+
+    fetch_github() {
+        clear
+        echo -e "${ORANGE}========================================${NC}"
+        echo -e "${WHITE} GITHUB / REPOSITORY FETCHER${NC}"
+        echo -e "${ORANGE}========================================${NC}"
+        read -p " Enter RAW file URL: " raw_url
+        if [ -z "$raw_url" ]; then
+            echo -e "${RED}URL cannot be empty.${NC}"
+            sleep 2
+            return
+        fi
+
+        echo -e "\n${WHITE}Select Destination Category:${NC}"
+        echo -e " 1) Games   ($BANK_DIR/games/)"
+        echo -e " 2) Text    ($BANK_DIR/text/)"
+        echo -e " 3) Images  ($BANK_DIR/images/)"
+        echo -e " 4) Audio   ($BANK_DIR/audio/)"
+        read -p " Destination (1-4): " dest_choice
+
+        local dest_dir=""
+        case "$dest_choice" in
+            1) dest_dir="$BANK_DIR/games" ;;
+            2) dest_dir="$BANK_DIR/text" ;;
+            3) dest_dir="$BANK_DIR/images" ;;
+            4) dest_dir="$BANK_DIR/audio" ;;
+            *) echo -e "${RED}Invalid selection.${NC}"; sleep 1; return ;;
+        esac
+
+        local fname
+        fname=$(basename "$raw_url")
+        read -p " Save as filename [$fname]: " custom_fname
+        [ -n "$custom_fname" ] && fname="$custom_fname"
+
+        echo -e "\n${ORANGE}Fetching $fname...${NC}"
+        if curl -sL "$raw_url" -o "$dest_dir/$fname"; then
+            echo -e "${GREEN}Successfully pulled to $dest_dir/$fname${NC}"
+        else
+            echo -e "${RED}Download failed. Check URL or internet connection.${NC}"
+        fi
+        press_enter
+    }
+
+    while true; do
+        clear
+        echo -e "${ORANGE}========================================${NC}"
+        echo -e "${WHITE} word@ PACKAGE MANAGER${NC}"
+        echo -e "${ORANGE}========================================${NC}"
+        echo -e "  1) Install Package Tiers"
+        echo -e "  2) View System Status"
+        echo -e "  3) Fetch from GitHub / Web"
+        echo -e "  4) Uninstall / Review a Package"
+        echo -e "  q) Return to OS"
+        echo -e "${ORANGE}========================================${NC}"
+        read -p " Select action: " inst_choice
+
+        case "$inst_choice" in
+            1)
+                clear
+                echo -e "${ORANGE}========================================${NC}"
+                echo -e "${WHITE} INSTALLATION TIERS${NC}"
+                echo -e "${ORANGE}========================================${NC}"
+                echo -e "  1) Base    (Core python & curl engine)"
+                echo -e "  2) Media   (Audio, Video, Burning tools)"
+                echo -e "  3) Extras  (Game UI libraries, formatting)"
+                echo -e "  4) All     (Install everything)"
+                echo -e "  q) Cancel"
+                echo -e "${ORANGE}----------------------------------------${NC}"
+                read -p " Select tier: " tier_choice
+                
+                case "$tier_choice" in
+                    1) install_tier "BASE" "${BASE_PKGS[@]}" ;;
+                    2) install_tier "MEDIA" "${MEDIA_PKGS[@]}" ;;
+                    3) install_tier "EXTRAS" "${EXTRA_PKGS[@]}" ;;
+                    4) install_tier "ALL (Advanced)" "${ALL_PKGS[@]}" ;;
+                    q|Q) ;;
+                    *) echo -e "${RED}Invalid selection.${NC}"; sleep 1 ;;
+                esac
+                ;;
+            2)
+                clear
+                echo -e "${ORANGE}========================================${NC}"
+                echo -e "${WHITE} SYSTEM PACKAGE STATUS${NC}"
+                echo -e "${ORANGE}========================================${NC}"
+                
+                echo -e "${WHITE}[BASE CORE]${NC}"
+                for pkg in "${BASE_PKGS[@]}"; do
+                    if is_pkg_installed "$pkg"; then
+                        echo -e "  ${GREEN}[INSTALLED]${NC} $pkg"
+                    else
+                        echo -e "  ${RED}[MISSING]${NC}   $pkg"
+                    fi
+                done
+                
+                echo -e "\n${WHITE}[MEDIA GENERAL]${NC}"
+                for pkg in "${MEDIA_PKGS[@]}"; do
+                    if is_pkg_installed "$pkg"; then
+                        echo -e "  ${GREEN}[INSTALLED]${NC} $pkg"
+                    else
+                        echo -e "  ${RED}[MISSING]${NC}   $pkg"
+                    fi
+                done
+                
+                echo -e "\n${WHITE}[EXTRAS]${NC}"
+                for pkg in "${EXTRA_PKGS[@]}"; do
+                    if is_pkg_installed "$pkg"; then
+                        echo -e "  ${GREEN}[INSTALLED]${NC} $pkg"
+                    else
+                        echo -e "  ${RED}[MISSING]${NC}   $pkg"
+                    fi
+                done
+                
+                echo -e "\n${ORANGE}----------------------------------------${NC}"
+                press_enter
+                ;;
+            3)
+                fetch_github
+                ;;
+            4)
+                clear
+                echo -e "${ORANGE}========================================${NC}"
+                echo -e "${WHITE} MODULE REVIEW & REMOVAL${NC}"
+                echo -e "${ORANGE}========================================${NC}"
+                echo -e " 1) python3         (Base - System Brain)"
+                echo -e " 2) ffmpeg          (Media - Audio Compression)"
+                echo -e " 3) mpg123          (Media - Audio Playback)"
+                echo -e " 4) alsa-utils      (Media - Mic Recording)"
+                echo -e " 5) wodim           (Media - Hardware Burning)"
+                echo -e " 6) python3-blessed (Extra - Game UI Library)"
+                echo -e " q) Cancel"
+                echo -e "${ORANGE}----------------------------------------${NC}"
+                read -p " Select module to review: " un_choice
+
+                case "$un_choice" in
+                    1|2|3|4|5)
+                        echo -e "\n${RED}[SYSTEM LOCK] Core/Media dependencies are protected from removal.${NC}"
+                        sleep 3 ;;
+                    6)
+                        echo -e "\n${WHITE}MODULE: python3-blessed${NC}"
+                        echo -e "Impact: Terminal games using Blessed will fail to render."
+                        echo -e "${GREEN}[STATUS] Safe to remove. OS unaffected.${NC}"
+                        
+                        read -p " Proceed with uninstall? (Y/N): " conf1
+                        if [[ "${conf1,,}" == "y" ]]; then
+                            echo -e "${RED}Executing purge...${NC}"
+                            sudo apt-get remove --purge -y python3-blessed
+                            sudo apt-get autoremove -y
+                            echo -e "${GREEN}Module purged.${NC}"
+                            sleep 2
+                        fi
+                        ;;
+                    q|Q) ;;
+                    *) echo -e "${RED}Invalid selection.${NC}"; sleep 1 ;;
+                esac
+                ;;
+            q|Q) return ;;
+            *) echo -e "${RED}Invalid selection.${NC}"; sleep 1 ;;
+        esac
+    done
+}
+
+
+# ==========================================
+# word@ FTF - UNIFIED FILE TO FLOPPY MODULE
+# ==========================================
+file_to_floppy_module() {
+    if [ ! -d "$FLOPPY_DIR" ]; then
+        echo -e "${RED}Error: Floppy mount point ($FLOPPY_DIR) not detected.${NC}"
+        press_enter
+        return
+    fi
+
+    CURRENT_ID=$(cat "$FLOPPY_DIR/.disk_id" 2>/dev/null)
+    if [ -z "$CURRENT_ID" ]; then
+        echo -e "${RED}Disk is uninitialized. Run 'word@ init' first.${NC}"
+        press_enter
+        return
+    fi
+
+    KNOWN_NAME=$(grep "ID: $CURRENT_ID" "$LEDGER_FILE" | awk -F'NAME: ' '{print $2}' | awk '{print $1}')
+    [ -z "$KNOWN_NAME" ] && KNOWN_NAME="UNKNOWN"
+
+    clear
+    echo -e "${ORANGE}========================================${NC}"
+    echo -e "${WHITE} FTF - FILE TO FLOPPY ARCHIVE PROTOCOL${NC}"
+    echo -e "${ORANGE} Target Disk: $KNOWN_NAME [$CURRENT_ID]${NC}"
+    echo -e "${ORANGE}========================================${NC}"
+    echo -e "  1) Text Archive   (Transfer .txt documents)"
+    echo -e "  2) Sound Archive  (Compress & transfer .mp3)"
+    echo -e "  3) Image Archive  (Transfer .jpg / .png images)"
+    echo -e "  4) Game Archive   (Transfer .py game cartridges)"
+    echo -e "  q) Return to OS"
+    echo -e "${ORANGE}========================================${NC}"
+    read -p " Select media type: " ftf_choice
+
+    FREE_SPACE_KB=$(df -k "$FLOPPY_DIR" | awk 'NR==2 {print $4}')
+
+    case "$ftf_choice" in
+        1) # TEXT
+            echo -e "\n${WHITE}Archiving Text Documents...${NC}"
+            shopt -s nullglob
+            text_files=("$BANK_DIR"/text/*.txt)
+            shopt -u nullglob
+
+            if [ ${#text_files[@]} -eq 0 ]; then
+                echo -e "${RED}No text files found in WordBank.${NC}"
+                press_enter
+                return
+            fi
+
+            for FILE in "${text_files[@]}"; do
+                FILE_SIZE=$(du -k "$FILE" | cut -f1)
+                REQUIRED_SPACE=$((FILE_SIZE * 2))
+
+                if [ "$REQUIRED_SPACE" -le "$FREE_SPACE_KB" ]; then
+                    BASENAME=$(basename "$FILE")
+                    NAME="${BASENAME%.*}"
+                    
+                    cp "$FILE" "$FLOPPY_DIR/${NAME}.txt"
+                    cp "$FILE" "$FLOPPY_DIR/${NAME}_BKP.txt"
+                    
+                    if ! grep -q "DISK_ID: $CURRENT_ID | FILE: $BASENAME" "$LEDGER_FILE"; then
+                        echo "DISK_ID: $CURRENT_ID | DISK_NAME: $KNOWN_NAME | FILE: $BASENAME | DATE: $(date +%F)" >> "$LEDGER_FILE"
+                    fi
+                    
+                    FREE_SPACE_KB=$((FREE_SPACE_KB - REQUIRED_SPACE))
+                    echo -e "${WHITE}Archived & Indexed: $BASENAME${NC}"
+                else
+                    echo -e "${RED}Skipped: $BASENAME (Exceeds remaining space)${NC}"
+                fi
+            done
+            echo -e "${GREEN}Text Archive Complete.${NC}"
+            press_enter
+            ;;
+
+        2) # SOUND
+            if ! command -v ffmpeg >/dev/null 2>&1; then
+                echo -e "${RED}ffmpeg is missing. Run 'word@ ?inst' to resolve.${NC}"
+                press_enter
+                return
+            fi
+
+            shopt -s nullglob
+            audio_files=("$BANK_DIR"/audio/*.mp3)
+            shopt -u nullglob
+
+            if [ ${#audio_files[@]} -eq 0 ]; then
+                echo -e "${RED}No audio files found in WordBank.${NC}"
+                press_enter
+                return
+            fi
+
+            i=1
+            for f in "${audio_files[@]}"; do
+                basename=$(basename "$f" | tr '[:lower:]' '[:upper:]')
+                echo -e "  ${WHITE}$i)${NC} $basename"
+                ((i++))
+            done
+            
+            read -p "Select file number: " choice
+            if ! [[ "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt "${#audio_files[@]}" ]; then
+                echo -e "${RED}Invalid selection.${NC}"
+                press_enter
+                return
+            fi
+            
+            SELECTED_FILE="${audio_files[$((choice-1))]}"
+            BASENAME=$(basename "$SELECTED_FILE")
+
+            echo -e "\n${ORANGE}Select Compression Profile:${NC}"
+            echo -e "  1) Short    (32kbps - High Quality)"
+            echo -e "  2) Standard (16kbps - Balanced)"
+            echo -e "  3) Long     (8kbps  - Max Length)"
+            echo -e "  4) Auto     (Fit perfectly to disk)"
+            read -p "Choice (1-4): " q_choice
+
+            TARGET_BITRATE="16k" 
+            case "$q_choice" in
+                1) TARGET_BITRATE="32k" ;;
+                2) TARGET_BITRATE="16k" ;;
+                3) TARGET_BITRATE="8k" ;;
+                4) 
+                    DURATION=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$SELECTED_FILE" | awk '{print int($1)}')
+                    [ "$DURATION" -le 0 ] && DURATION=1
+                    MAX_BITRATE=$(( (FREE_SPACE_KB * 8) / DURATION ))
+                    SAFE_BITRATE=$(( MAX_BITRATE * 95 / 100 ))
+                    
+                    if [ "$SAFE_BITRATE" -lt 6 ]; then
+                        echo -e "${RED}WARNING: File is too long. Audio will be heavily degraded.${NC}"
+                        TARGET_BITRATE="6k"
+                    elif [ "$SAFE_BITRATE" -gt 64 ]; then
+                        TARGET_BITRATE="64k" 
+                    else
+                        TARGET_BITRATE="${SAFE_BITRATE}k"
+                    fi
+                    echo -e "${ORANGE}Auto-calculated Bitrate: $TARGET_BITRATE${NC}"
+                    ;;
+                *) echo -e "${RED}Invalid profile. Defaulting to 16kbps.${NC}" ;;
+            esac
+
+            echo -e "${WHITE}Compressing & Transferring...${NC}"
+            if ffmpeg -y -i "$SELECTED_FILE" -c:a libmp3lame -b:a "$TARGET_BITRATE" -ac 1 -ar 16000 "$FLOPPY_DIR/$BASENAME" 2>/dev/null; then
+                echo -e "${GREEN}Audio secured on physical disk.${NC}"
+                read -p "Set track to Auto-Run on insert? (Y/N): " autorun_choice
+                if [[ "${autorun_choice,,}" == "y" ]]; then
+                    echo "$BASENAME" > "$FLOPPY_DIR/.autorun"
+                    echo -e "${WHITE}Auto-Run protocol established.${NC}"
+                fi
+            else
+                echo -e "${RED}Error: Audio compression failed.${NC}"
+            fi
+            press_enter
+            ;;
+
+        3) # IMAGES
+            shopt -s nullglob
+            img_files=("$BANK_DIR"/images/*)
+            shopt -u nullglob
+
+            if [ ${#img_files[@]} -eq 0 ]; then
+                echo -e "${RED}No image files found in WordBank.${NC}"
+                press_enter
+                return
+            fi
+
+            for FILE in "${img_files[@]}"; do
+                FILE_SIZE=$(du -k "$FILE" | cut -f1)
+                if [ "$FILE_SIZE" -le "$FREE_SPACE_KB" ]; then
+                    BASENAME=$(basename "$FILE")
+                    cp "$FILE" "$FLOPPY_DIR/$BASENAME"
+                    FREE_SPACE_KB=$((FREE_SPACE_KB - FILE_SIZE))
+                    echo -e "${WHITE}Archived Image: $BASENAME${NC}"
+                else
+                    echo -e "${RED}Skipped: $BASENAME (Exceeds remaining space)${NC}"
+                fi
+            done
+            echo -e "${GREEN}Image Archive Complete.${NC}"
+            press_enter
+            ;;
+
+        4) # GAMES
+            shopt -s nullglob
+            game_files=("$BANK_DIR"/games/*.py)
+            shopt -u nullglob
+
+            if [ ${#game_files[@]} -eq 0 ]; then
+                echo -e "${RED}No games found in WordBank.${NC}"
+                press_enter
+                return
+            fi
+
+            i=1
+            for g in "${game_files[@]}"; do
+                basename=$(basename "$g")
+                echo -e "  ${WHITE}$i)${NC} $basename"
+                ((i++))
+            done
+            read -p "Select game cartridge to transfer: " g_choice
+            
+            if [[ "$g_choice" =~ ^[0-9]+$ ]] && [ "$g_choice" -ge 1 ] && [ "$g_choice" -le "${#game_files[@]}" ]; then
+                SEL_GAME="${game_files[$((g_choice-1))]}"
+                BASENAME=$(basename "$SEL_GAME")
+                FILE_SIZE=$(du -k "$SEL_GAME" | cut -f1)
+
+                if [ "$FILE_SIZE" -le "$FREE_SPACE_KB" ]; then
+                    cp "$SEL_GAME" "$FLOPPY_DIR/$BASENAME"
+                    echo -e "${GREEN}Game cartridge '$BASENAME' copied to floppy.${NC}"
+                    read -p "Set game to Auto-Run on insert? (Y/N): " autorun_choice
+                    if [[ "${autorun_choice,,}" == "y" ]]; then
+                        echo "$BASENAME" > "$FLOPPY_DIR/.autorun"
+                        echo -e "${WHITE}Auto-Run protocol established.${NC}"
+                    fi
+                else
+                    echo -e "${RED}Error: Cartridge exceeds floppy space.${NC}"
+                fi
+            else
+                echo -e "${RED}Invalid selection.${NC}"
+            fi
+            press_enter
+            ;;
+
+        q|Q) return ;;
+        *) echo -e "${RED}Invalid selection.${NC}"; sleep 1 ;;
+    esac
+}
 
 
 # ==========================================
@@ -132,11 +580,8 @@ interactive_calculator() {
 
 file_calculator() {
     local tmp_math="$BANK_DIR/text/.calc_input.tmp"
-    
-    # Ensure file is empty and ready
     > "$tmp_math"
     
-    # Open editor (like 'write' command)
     if [ -n "$DISPLAY" ] && command -v xdg-open >/dev/null 2>&1; then
         xdg-open "$tmp_math" 2>/dev/null || nano "$tmp_math"
         echo -e "${WHITE}Waiting for editor to close... Press [ENTER] when done saving.${NC}"
@@ -152,7 +597,6 @@ file_calculator() {
     
     local has_content=0
     while IFS= read -r line || [ -n "$line" ]; do
-        # Skip empty lines
         [[ -z "$(echo -e "${line}" | tr -d '[:space:]')" ]] && continue
         has_content=1
         
@@ -164,16 +608,14 @@ file_calculator() {
         echo -e "${RED}File was empty. No math processed.${NC}"
     fi
     
-    # Burn the evidence
     rm -f "$tmp_math"
-    echo -e "\n${WHITE}Temporary file burned. Press any key to return...${NC}"
-    read -n 1 -s
+    press_enter
     calculator_engine
 }
 
 calculator_engine() {
     if ! command -v python3 >/dev/null 2>&1; then
-        echo -e "${RED}Error: python3 is not installed. Run 'word@' to install dependencies.${NC}"
+        echo -e "${RED}Error: python3 is missing. Run 'word@ ?inst' to resolve.${NC}"
         exit 1
     fi
 
@@ -207,44 +649,21 @@ case "$1" in
         echo -e "${WHITE} word@ SYSTEM DASHBOARD${NC}"
         echo -e "${ORANGE}========================================${NC}"
         echo -e "Available Commands:"
-        echo -e "  write, raw, ?rec, TTF, STF, init"
+        echo -e "  write, raw, ?rec, FTF, init"
         echo -e "  ?scan, ?flop, ?gath, ?when, view, del!"
-        echo -e "  help!, ?work, ?calc, update"
+        echo -e "  help!, ?work, ?calc, ?play, ?inst, update"
         echo -e "${ORANGE}========================================${NC}"
 
-        MISSING_PKGS=()
-        
-        # Check required system binaries and map to their apt packages
-        command -v ffmpeg >/dev/null 2>&1 || MISSING_PKGS+=("ffmpeg")
-        command -v mpg123 >/dev/null 2>&1 || MISSING_PKGS+=("mpg123")
-        command -v arecord >/dev/null 2>&1 || MISSING_PKGS+=("alsa-utils")
-        command -v wodim >/dev/null 2>&1 || MISSING_PKGS+=("wodim")
-        command -v qsstv >/dev/null 2>&1 || MISSING_PKGS+=("qsstv")
-        command -v convert >/dev/null 2>&1 || MISSING_PKGS+=("imagemagick")
-        command -v python3 >/dev/null 2>&1 || MISSING_PKGS+=("python3")
-
-        # The Visual Installer Protocol
-        if [ ${#MISSING_PKGS[@]} -gt 0 ]; then
-            echo -e "\n${WHITE}Want to install the necessary files? Y/N${NC}"
-            read -p "> " install_choice
-            if [[ "$install_choice" == "Y" || "$install_choice" == "y" ]]; then
-                echo -e "\n${ORANGE}Updating grid repositories...${NC}"
-                sudo apt-get update -qq
-                echo ""
-                
-                for pkg in "${MISSING_PKGS[@]}"; do
-                    echo -e "- installing $pkg"
-                    if sudo apt-get install -y "$pkg" >/dev/null 2>&1; then
-                        echo -e "${GREEN}- $pkg installed${NC}\n"
-                    else
-                        echo -e "${RED}- $pkg failed to install${NC}\n"
-                    fi
-                done
-                
-                echo -e "${ORANGE}- auto clearing in 3 seconds...${NC}"
-                sleep 3
-                clear
+        MISSING=0
+        for pkg in ffmpeg mpg123 alsa-utils wodim qsstv imagemagick python3; do
+            if ! is_pkg_installed "$pkg"; then
+                MISSING=1
+                break
             fi
+        done
+
+        if [ "$MISSING" -eq 1 ]; then
+            echo -e "${RED}Notice: System is missing core dependencies. Run 'word@ ?inst' to manage packages.${NC}"
         fi
         exit 0
         ;;
@@ -270,8 +689,7 @@ case "$1" in
         ;;
 
     "help!")
-        clear # Wipe the terminal for clean formatting
-        
+        clear 
         if [ "$2" == "tree" ]; then
             echo -e "${WHITE}SYSTEM HIERARCHY:${NC}"
             echo -e "${ORANGE}word@${NC}"
@@ -282,71 +700,65 @@ case "$1" in
             echo -e "├── raw [filename]"
             echo -e "├── ?rec"
             echo -e "├── view [target]"
-            echo -e "│   ├── .txt (Text Stream)"
-            echo -e "│   └── .mp3 (Audio Playback)"
-            echo -e "├── STF (Sound to Floppy)"
-            echo -e "│   ├── 1) Short Profile"
-            echo -e "│   ├── 2) Standard Profile"
-            echo -e "│   ├── 3) Long Profile"
-            echo -e "│   └── 4) Auto Profile"
-            echo -e "├── TTF (Text to Floppy)"
+            echo -e "├── ?play (Game Console)"
+            echo -e "├── FTF (File To Floppy Archive Suite)"
+            echo -e "│   ├── 1) Text (.txt)"
+            echo -e "│   ├── 2) Sound (.mp3)"
+            echo -e "│   ├── 3) Images (.jpg/.png)"
+            echo -e "│   └── 4) Games (.py)"
             echo -e "├── init"
             echo -e "├── ?calc"
-            echo -e "│   ├── 1) from_file"
-            echo -e "│   └── 2) interactive"
+            echo -e "├── ?inst (Package Manager & GitHub Fetcher)"
             echo -e "├── ?scan"
-            echo -e "│   ├── 1) Surface Scan"
-            echo -e "│   ├── 2) Local Hunt"
-            echo -e "│   ├── 3) Ledger Scan"
-            echo -e "│   ├── 4) Auto-Execute"
-            echo -e "│   └── 5) System Dependencies"
             echo -e "├── del!"
-            echo -e "│   ├── 1) File"
-            echo -e "│   ├── 2) Bank"
-            echo -e "│   ├── 3) Floppy"
-            echo -e "│   └── 4) Reset"
-            echo -e "├── ?flop"
-            echo -e "├── ?gath"
-            echo -e "├── ?when"
-            echo -e "├── ?work"
+            echo -e "├── ?flop / ?gath / ?when / ?work"
             echo -e "└── update"
             
         elif [ "$2" == "desc" ]; then
             echo -e "${WHITE}DETAILED COMMAND DESCRIPTIONS:${NC}"
-            echo -e "${ORANGE}write [filename]${NC} - Opens or creates a text file. Automatically routes to a GUI editor if on a desktop, or defaults to Nano in a pure terminal."
-            echo -e "${ORANGE}raw [filename]${NC}   - A distraction-free, direct terminal writing mode. Type //SAVE on a new line to keep your draft, or //REJECT to instantly burn it."
-            echo -e "${ORANGE}?rec${NC}             - Audio field recorder. Uses 'arecord' to capture live audio and 'ffmpeg' to compress it into the WordBank's audio subfolder."
-            echo -e "${ORANGE}STF${NC}              - Sound To Floppy. Compresses and transfers audio to disk. Offers 4 profiles: 1) Short (High Q), 2) Standard, 3) Long (Max Length), 4) Auto (Fits exact remaining space)."
-            echo -e "${ORANGE}TTF${NC}              - Text To Floppy. Scans the local WordBank text directory and safely archives files to the inserted floppy disk without exceeding capacity."
-            echo -e "${ORANGE}view [target]${NC}    - Universal media viewer. Streams text files using a 16-bit typewriter effect or plays mp3 files using the 'mpg123' audio engine."
-            echo -e "${ORANGE}?calc${NC}            - Floating-point math calculator powered by a background Python engine. Includes interactive and from_file modes."
-            echo -e "${ORANGE}?scan${NC}            - Multi-tool diagnostic suite. 1) Magnetic surface scan. 2) Local system file hunt. 3) Physical disk ledger search. 4) Floppy auto-run trigger. 5) Dependency check."
-            echo -e "${ORANGE}del!${NC}             - System burn protocols. Safely erase a specific file (1), purge your entire local WordBank (2), wipe the physical floppy (3), or execute a total factory reset (4)."
-            echo -e "${ORANGE}init${NC}             - Initializes a new floppy disk. Generates a random NATO phonetic name, stamps a unique ID, runs a magnetic badblock scan, and updates the local ledger."
-            echo -e "${ORANGE}?flop / ?gath${NC}    - Hardware metrics. '?flop' checks the mounted floppy drive status. '?gath' calculates total WordBank size and individual file weights across all subfolders."
-            echo -e "${ORANGE}?when / ?work${NC}    - System info. '?when' displays creation and modification dates for all files. '?work' runs diagnostic checks on directory write-access and network connectivity."
-            echo -e "${ORANGE}update${NC}           - Connects to GitHub, pulls the latest word@ script from the main branch, and overwrites the local binary."
-            echo -e "${ORANGE}help! [tree/desc]${NC}- Displays this documentation. 'tree' maps the interactive branch structure. 'desc' shows verbose explanations. No flag shows the quick reference."
+            echo -e "${ORANGE}write [filename]${NC} - Opens or creates a text file. Automatically routes to GUI or Nano."
+            echo -e "${ORANGE}raw [filename]${NC}   - Distraction-free terminal writing mode. Type //SAVE or //REJECT."
+            echo -e "${ORANGE}?rec${NC}             - Audio field recorder. Compresses live mic input to MP3."
+            echo -e "${ORANGE}FTF${NC}              - File To Floppy. Unified archiver for text, compressed audio, images, and games."
+            echo -e "${ORANGE}view [target]${NC}    - Universal media viewer for streaming text or playing audio."
+            echo -e "${ORANGE}?play${NC}            - Game Console. Launches Python cartridges from bank or floppy."
+            echo -e "${ORANGE}?calc${NC}            - Floating-point math calculator powered by background Python."
+            echo -e "${ORANGE}?inst${NC}            - Package Manager. Installs dependencies or pulls code directly from GitHub."
+            echo -e "${ORANGE}?scan${NC}            - Diagnostic suite for magnetic surface checks, hunting, and virtual emulation."
+            echo -e "${ORANGE}del!${NC}             - Burn protocols to safely erase files, banks, or virtual floppies."
+            echo -e "${ORANGE}init${NC}             - Initializes a floppy disk, assigning a NATO name and scanning sectors."
+            echo -e "${ORANGE}update${NC}           - Pulls the latest word@ script from GitHub."
             
         else
             echo -e "${WHITE}QUICK REFERENCE:${NC}"
             echo -e "  ${WHITE}write${NC}     - Open/create text (Nano/Desktop)"
             echo -e "  ${WHITE}raw${NC}       - Write directly in terminal"
             echo -e "  ${WHITE}?rec${NC}      - Record MP3 audio"
-            echo -e "  ${WHITE}STF${NC}       - Audio to floppy (Profiles: 1-Short, 2-Std, 3-Long, 4-Auto)"
-            echo -e "  ${WHITE}TTF${NC}       - Text to floppy"
+            echo -e "  ${WHITE}FTF${NC}       - File to Floppy (Text/Sound/Image/Game)"
             echo -e "  ${WHITE}view${NC}      - Play MP3 or stream text"
+            echo -e "  ${WHITE}?play${NC}     - Launch Python terminal games"
             echo -e "  ${WHITE}?calc${NC}     - Python-powered Math Engine"
-            echo -e "  ${WHITE}?scan${NC}     - Tools (1-Surface, 2-Hunt, 3-Ledger, 4-Autorun, 5-Dep Check)"
-            echo -e "  ${WHITE}del!${NC}      - Erase (1-File, 2-Bank, 3-Floppy, 4-Reset)"
+            echo -e "  ${WHITE}?inst${NC}     - Package Manager & GitHub Fetcher"
+            echo -e "  ${WHITE}?scan${NC}     - Tools (Surface, Hunt, Ledger, Emulator Boot)"
+            echo -e "  ${WHITE}del!${NC}      - Erase (File, Bank, Floppy, Virtual, Reset)"
             echo -e "  ${WHITE}init${NC}      - Format and stamp floppy"
             echo -e "  ${WHITE}?flop${NC}     - Floppy drive hardware status"
-            echo -e "  ${WHITE}?gath${NC}     - WordBank file sizes/weights by folder"
+            echo -e "  ${WHITE}?gath${NC}     - WordBank file sizes/weights"
             echo -e "  ${WHITE}?when${NC}     - Global file timestamps"
-            echo -e "  ${WHITE}?work${NC}     - Directory & network health check"
+            echo -e "  ${WHITE}?work${NC}     - Health & network diagnostic check"
             echo -e "  ${WHITE}update${NC}    - Pull latest version from GitHub"
-            echo -e "  ${WHITE}help!${NC}     - Options: 'tree' (structure) or 'desc' (detailed manual)"
+            echo -e "  ${WHITE}help!${NC}     - Options: 'help! tree' or 'help! desc'"
         fi
+        exit 0
+        ;;
+
+    "?inst")
+        installer_module
+        exit 0
+        ;;
+
+    "FTF")
+        file_to_floppy_module
         exit 0
         ;;
 
@@ -357,8 +769,6 @@ case "$1" in
             read -p "Enter document name: " filename
         fi
         filepath="$BANK_DIR/text/$filename.txt"
-        
-        # Guarantee the file actually exists before opening
         touch "$filepath"
         
         if [ -n "$DISPLAY" ] && command -v xdg-open >/dev/null 2>&1; then
@@ -384,7 +794,6 @@ case "$1" in
         echo -e "${ORANGE} Type //SAVE on a new line to keep your work."
         echo -e " Type //REJECT on a new line to burn it.${NC}"
         echo -e "${ORANGE}========================================${NC}"
-        
         > "$TEMP_FILE"
         
         while IFS= read -r line; do
@@ -404,7 +813,7 @@ case "$1" in
 
     "?rec")
         if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v arecord >/dev/null 2>&1; then
-            echo -e "${RED}Cannot continue, relevant files missing, re-execute word@ command.${NC}"
+            echo -e "${RED}Relevant tools missing. Run 'word@ ?inst' to resolve.${NC}"
             exit 1
         fi
         
@@ -455,14 +864,19 @@ case "$1" in
         echo "$NEW_ID" > "$FLOPPY_DIR/.disk_id"
         echo -e "${WHITE}Hardware Stamped. Assigned Name: $DISK_NAME${NC}"
         
-        echo -e "${ORANGE}Running deep magnetic scan (This will take a moment)...${NC}"
+        echo -e "${ORANGE}Running deep magnetic scan...${NC}"
         DEVICE=$(df "$FLOPPY_DIR" | tail -1 | awk '{print $1}')
-        BAD_COUNT=$(sudo badblocks -q "$DEVICE" | wc -l)
         
-        if [ "$BAD_COUNT" -gt 0 ]; then
-            echo -e "${RED}WARNING: $BAD_COUNT dead sectors detected.${NC}"
+        if [[ "$DEVICE" == *loop* ]] || [ ! -b "$DEVICE" ]; then
+            BAD_COUNT=0
+            echo -e "${GREEN}Virtual Floppy Image detected. Surface integrity is 100%.${NC}"
         else
-            echo -e "${GREEN}Scan complete. Surface integrity is 100%.${NC}"
+            BAD_COUNT=$(sudo badblocks -q "$DEVICE" | wc -l)
+            if [ "$BAD_COUNT" -gt 0 ]; then
+                echo -e "${RED}WARNING: $BAD_COUNT dead sectors detected.${NC}"
+            else
+                echo -e "${GREEN}Scan complete. Surface integrity is 100%.${NC}"
+            fi
         fi
         
         echo "ID: $NEW_ID | NAME: $DISK_NAME | BAD_BLOCKS: $BAD_COUNT" >> "$LEDGER_FILE"
@@ -470,147 +884,64 @@ case "$1" in
         exit 0
         ;;
 
-    "TTF")
-        echo -e "${WHITE}Initiating Text-to-Floppy Archive Protocol...${NC}"
-        if [ ! -d "$FLOPPY_DIR" ]; then
-            echo -e "${RED}Error: Floppy drive not detected.${NC}"
-            exit 1
-        fi
-
-        CURRENT_ID=$(cat "$FLOPPY_DIR/.disk_id" 2>/dev/null)
-        if [ -z "$CURRENT_ID" ]; then
-            echo -e "${RED}Disk is uninitialized. Run 'word@ init' first.${NC}"
-            exit 1
-        fi
-
-        KNOWN_NAME=$(grep "ID: $CURRENT_ID" "$LEDGER_FILE" | awk -F'NAME: ' '{print $2}' | awk '{print $1}')
-        BAD_BLOCKS=$(grep "ID: $CURRENT_ID" "$LEDGER_FILE" | awk -F'BAD_BLOCKS: ' '{print $2}' | awk '{print $1}')
-        
-        echo -e "${ORANGE}Archiving Bank to Floppy: $KNOWN_NAME${NC}"
-
-        FREE_SPACE=$(df -k "$FLOPPY_DIR" | awk 'NR==2 {print $4}')
-        SAFE_SPACE=$((FREE_SPACE - BAD_BLOCKS - SAFE_OVERHEAD))
-
-        for FILE in "$BANK_DIR"/text/*.txt; do
-            [ -e "$FILE" ] || continue
-            FILE_SIZE=$(du -k "$FILE" | cut -f1)
-            REQUIRED_SPACE=$((FILE_SIZE * 2))
-
-            if [ "$REQUIRED_SPACE" -le "$SAFE_SPACE" ]; then
-                BASENAME=$(basename "$FILE")
-                NAME="${BASENAME%.*}"
-                
-                cp "$FILE" "$FLOPPY_DIR/${NAME}.txt"
-                cp "$FILE" "$FLOPPY_DIR/${NAME}_BKP.txt"
-                
-                if ! grep -q "DISK_ID: $CURRENT_ID | FILE: $BASENAME" "$LEDGER_FILE"; then
-                    echo "DISK_ID: $CURRENT_ID | DISK_NAME: $KNOWN_NAME | FILE: $BASENAME | DATE: $(date +%F)" >> "$LEDGER_FILE"
-                fi
-                
-                SAFE_SPACE=$((SAFE_SPACE - REQUIRED_SPACE))
-                echo -e "${WHITE}Archived & Indexed: $BASENAME${NC}"
-            else
-                echo -e "${RED}Skipped: $BASENAME (Exceeds remaining space)${NC}"
-            fi
-        done
-        echo -e "${GREEN}TTF Transfer Complete.${NC}"
-        exit 0
+    "?calc")
+        calculator_engine
         ;;
 
-    "STF")
-        if ! command -v ffmpeg >/dev/null 2>&1; then
-            echo -e "${RED}Cannot continue, relevant files missing, re-execute word@ command.${NC}"
-            exit 1
-        fi
-        
-        echo -e "${ORANGE}========================================${NC}"
-        echo -e "${WHITE} SOUND TO FLOPPY ARCHIVE PROTOCOL${NC}"
-        echo -e "${ORANGE}========================================${NC}"
-        
-        if [ ! -d "$FLOPPY_DIR" ]; then
-            echo -e "${RED}Error: Floppy drive not detected.${NC}"
-            exit 1
-        fi
-        
-        shopt -s nullglob
-        files=("$BANK_DIR"/audio/*.mp3)
-        shopt -u nullglob
-        
-        if [ ${#files[@]} -eq 0 ]; then
-            echo -e "${RED}No audio files found in WordBank.${NC}"
+    "?play")
+        if ! command -v python3 >/dev/null 2>&1; then
+            echo -e "${RED}Error: python3 is missing. Run 'word@ ?inst' to resolve.${NC}"
             exit 1
         fi
 
+        echo -e "${ORANGE}========================================${NC}"
+        echo -e "${WHITE} word@ GAME CONSOLE${NC}"
+        echo -e "${ORANGE}========================================${NC}"
+        
+        shopt -s nullglob
+        bank_games=("$BANK_DIR"/games/*.py)
+        floppy_games=("$FLOPPY_DIR"/*.py)
+        shopt -u nullglob
+        
+        all_games=("${bank_games[@]}" "${floppy_games[@]}")
+        
+        if [ ${#all_games[@]} -eq 0 ]; then
+            echo -e "${RED}No games found in Local Bank or Floppy Drive.${NC}"
+            exit 1
+        fi
+        
         i=1
-        for f in "${files[@]}"; do
-            basename=$(basename "$f" | tr '[:lower:]' '[:upper:]')
-            echo -e "  ${WHITE}$i)${NC} $basename"
+        for g in "${all_games[@]}"; do
+            basename=$(basename "$g")
+            location="Bank"
+            [[ "$g" == "$FLOPPY_DIR"* ]] && location="Floppy Disk"
+            echo -e "  ${WHITE}$i)${NC} $basename ${ORANGE}[$location]${NC}"
             ((i++))
         done
         
-        read -p "Select file number: " choice
-        if ! [[ "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt "${#files[@]}" ]; then
+        echo -e "${ORANGE}----------------------------------------${NC}"
+        read -p " Select game to boot (or 'q' to quit): " choice
+        
+        if [[ "$choice" == "q" || "$choice" == "Q" ]]; then
+            echo -e "${WHITE}Exiting console...${NC}"
+            exit 0
+        fi
+        
+        if ! [[ "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt "${#all_games[@]}" ]; then
             echo -e "${RED}Invalid selection.${NC}"
             exit 1
         fi
         
-        SELECTED_FILE="${files[$((choice-1))]}"
-        BASENAME=$(basename "$SELECTED_FILE")
+        SELECTED_GAME="${all_games[$((choice-1))]}"
         
-        echo -e "\n${ORANGE}Select Compression Profile:${NC}"
-        echo -e "  1) Short    (32kbps - High Quality)"
-        echo -e "  2) Standard (16kbps - Balanced)"
-        echo -e "  3) Long     (8kbps  - Max Length)"
-        echo -e "  4) Auto     (Fit perfectly to disk)"
-        read -p "Choice (1-4): " q_choice
-
-        FREE_SPACE_KB=$(df -k "$FLOPPY_DIR" | awk 'NR==2 {print $4}')
-        if [ "$FREE_SPACE_KB" -le 0 ]; then
-            echo -e "${RED}Error: Floppy is completely full.${NC}"
-            exit 1
-        fi
-
-        TARGET_BITRATE="16k" 
-        case "$q_choice" in
-            1) TARGET_BITRATE="32k" ;;
-            2) TARGET_BITRATE="16k" ;;
-            3) TARGET_BITRATE="8k" ;;
-            4) 
-                DURATION=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$SELECTED_FILE" | awk '{print int($1)}')
-                if [ "$DURATION" -le 0 ]; then DURATION=1; fi
-                MAX_BITRATE=$(( (FREE_SPACE_KB * 8) / DURATION ))
-                SAFE_BITRATE=$(( MAX_BITRATE * 95 / 100 ))
-                
-                if [ "$SAFE_BITRATE" -lt 6 ]; then
-                    echo -e "${RED}WARNING: File is too long. Audio will be heavily degraded.${NC}"
-                    TARGET_BITRATE="6k"
-                elif [ "$SAFE_BITRATE" -gt 64 ]; then
-                    TARGET_BITRATE="64k" 
-                else
-                    TARGET_BITRATE="${SAFE_BITRATE}k"
-                fi
-                echo -e "${ORANGE}Auto-calculated Bitrate: $TARGET_BITRATE${NC}"
-                ;;
-            *) echo -e "${RED}Invalid profile. Defaulting to 16kbps.${NC}" ;;
-        esac
-
-        echo -e "${WHITE}Compressing & Transferring...${NC}"
-        if ffmpeg -y -i "$SELECTED_FILE" -c:a libmp3lame -b:a "$TARGET_BITRATE" -ac 1 -ar 16000 "$FLOPPY_DIR/$BASENAME" 2>/dev/null; then
-            echo -e "${GREEN}Audio secured on physical disk.${NC}"
-            
-            read -p "Set this track to Auto-Run on insert? (Y/N): " autorun_choice
-            if [[ "$autorun_choice" == "Y" || "$autorun_choice" == "y" ]]; then
-                echo "$BASENAME" > "$FLOPPY_DIR/.autorun"
-                echo -e "${WHITE}Auto-Run protocol established.${NC}"
-            fi
-        else
-            echo -e "${RED}Error: Audio compression failed.${NC}"
-        fi
+        clear
+        python3 "$SELECTED_GAME"
+        
+        clear
+        echo -e "${ORANGE}========================================${NC}"
+        echo -e "${WHITE} Game session ended. OS control restored.${NC}"
+        echo -e "${ORANGE}========================================${NC}"
         exit 0
-        ;;
-
-    "?calc")
-        calculator_engine
         ;;
 
     "?scan")
@@ -621,15 +952,24 @@ case "$1" in
         echo -e "  ${WHITE}2)${NC} Local Hunt   (Search Pi and move to Bank)"
         echo -e "  ${WHITE}3)${NC} Ledger Scan  (Find a file's physical disk)"
         echo -e "  ${WHITE}4)${NC} Auto-Execute (Trigger .autorun or script)"
-        echo -e "  ${WHITE}5)${NC} Check System Dependencies"
+        echo -e "  ${WHITE}5)${NC} Boot Virtual Floppy Emulator"
         echo -e "${ORANGE}========================================${NC}"
         read -p "Select protocol (1-5): " scan_choice
 
         case "$scan_choice" in
             1)
-                DEVICE=$(df "$FLOPPY_DIR" | tail -1 | awk '{print $1}')
-                echo -e "${ORANGE}Listening for dead sectors on $DEVICE...${NC}"
-                sudo badblocks -v "$DEVICE"
+                if mountpoint -q "$FLOPPY_DIR" 2>/dev/null; then
+                    DEVICE=$(df "$FLOPPY_DIR" | tail -1 | awk '{print $1}')
+                    if [[ "$DEVICE" == *loop* ]] || [ ! -b "$DEVICE" ]; then
+                        echo -e "${ORANGE}Listening for dead sectors... wait, can you hear it step? Yeah, me neither.${NC}"
+                        echo -e "${GREEN}Virtual Floppy Image detected. Magnetic integrity is artificially 100%.${NC}"
+                    else
+                        echo -e "${ORANGE}Listening for dead sectors on $DEVICE...${NC}"
+                        sudo badblocks -v "$DEVICE"
+                    fi
+                else
+                    echo -e "${RED}No floppy drive mounted at $FLOPPY_DIR.${NC}"
+                fi
                 ;;
             2)
                 read -p "Enter exact filename to hunt: " hunt_target
@@ -639,7 +979,7 @@ case "$1" in
                 if [ -n "$FOUND_PATH" ]; then
                     echo -e "${WHITE}Target acquired at: $FOUND_PATH${NC}"
                     read -p "Import to WordBank? (Y/N): " import_choice
-                    if [[ "$import_choice" == "Y" || "$import_choice" == "y" ]]; then
+                    if [[ "${import_choice,,}" == "y" ]]; then
                         cp "$FOUND_PATH" "$BANK_DIR/"
                     fi
                 else
@@ -657,14 +997,16 @@ case "$1" in
             4)
                 if [ -d "$FLOPPY_DIR" ]; then
                     if [ -f "$FLOPPY_DIR/.autorun" ]; then
-                        if ! command -v mpg123 >/dev/null 2>&1; then
-                            echo -e "${RED}Cannot continue, relevant files missing, re-execute word@ command.${NC}"
-                            exit 1
-                        fi
                         AUTORUN_FILE=$(cat "$FLOPPY_DIR/.autorun")
                         if [ -f "$FLOPPY_DIR/$AUTORUN_FILE" ]; then
                             echo -e "${WHITE}Auto-Run triggered: $AUTORUN_FILE${NC}"
-                            mpg123 -q "$FLOPPY_DIR/$AUTORUN_FILE" 2>/dev/null
+                            if [[ "$AUTORUN_FILE" == *.py ]]; then
+                                python3 "$FLOPPY_DIR/$AUTORUN_FILE"
+                            elif [[ "$AUTORUN_FILE" == *.mp3 ]]; then
+                                mpg123 -q "$FLOPPY_DIR/$AUTORUN_FILE" 2>/dev/null
+                            elif [[ "$AUTORUN_FILE" == *.sh ]]; then
+                                bash "$FLOPPY_DIR/$AUTORUN_FILE"
+                            fi
                             exit 0
                         fi
                     fi
@@ -679,15 +1021,27 @@ case "$1" in
                 fi
                 ;;
             5)
-                echo -e "${WHITE}Checking required packages...${NC}"
-                for pkg in ffmpeg mpg123 arecord wodim qsstv convert python3; do
-                    if command -v "$pkg" >/dev/null 2>&1; then
-                        echo -e "${GREEN}[OK]${NC} $pkg is installed."
-                    else
-                        echo -e "${RED}[MISSING]${NC} $pkg"
+                echo -e "${ORANGE}========================================${NC}"
+                echo -e "${WHITE} VIRTUAL FLOPPY EMULATOR${NC}"
+                echo -e "${ORANGE}========================================${NC}"
+                sudo mkdir -p "$FLOPPY_DIR" 2>/dev/null
+                if mountpoint -q "$FLOPPY_DIR" 2>/dev/null; then
+                    echo -e "${RED}A disk or image is already mounted at $FLOPPY_DIR.${NC}"
+                    echo -e "${WHITE}Use 'del! -> 5' to unmount and destroy it first.${NC}"
+                else
+                    echo -e "${WHITE}Generating 1.44MB Virtual Disk...${NC}"
+                    dd if=/dev/zero of="$VIRTUAL_IMG" bs=1024 count=1440 status=none
+                    echo -e "${WHITE}Formatting as FAT12 (Standard Floppy)...${NC}"
+                    if ! command -v mkfs.fat >/dev/null 2>&1; then
+                        sudo apt-get install -y dosfstools >/dev/null 2>&1
                     fi
-                done
-                echo -e "${ORANGE}Type 'word@' without arguments to launch the auto-installer.${NC}"
+                    mkfs.fat -F 12 "$VIRTUAL_IMG" >/dev/null 2>&1
+                    echo -e "${WHITE}Mounting to $FLOPPY_DIR...${NC}"
+                    sudo mount -o loop "$VIRTUAL_IMG" "$FLOPPY_DIR"
+                    echo -e "${GREEN}Virtual Emulator Online. System sees it as physical hardware.${NC}"
+                    echo -e "${ORANGE}Don't forget to run 'word@ init' to stamp it!${NC}"
+                fi
+                press_enter
                 ;;
         esac
         exit 0
@@ -715,7 +1069,7 @@ case "$1" in
             
         elif [ -f "$BANK_DIR/audio/$target.mp3" ]; then
             if ! command -v mpg123 >/dev/null 2>&1; then
-                echo -e "${RED}Cannot continue, relevant files missing, re-execute word@ command.${NC}"
+                echo -e "${RED}mpg123 is missing. Run 'word@ ?inst' to resolve.${NC}"
                 exit 1
             fi
             echo -e "${ORANGE}========================================${NC}"
@@ -753,6 +1107,8 @@ case "$1" in
         ls -lh "$BANK_DIR"/audio 2>/dev/null | awk 'NR>1 {print $5 "\t" $9}'
         echo -e "${ORANGE}--- IMAGES ---${NC}"
         ls -lh "$BANK_DIR"/images 2>/dev/null | awk 'NR>1 {print $5 "\t" $9}'
+        echo -e "${ORANGE}--- GAMES ---${NC}"
+        ls -lh "$BANK_DIR"/games 2>/dev/null | awk 'NR>1 {print $5 "\t" $9}'
         exit 0
         ;;
 
@@ -765,21 +1121,28 @@ case "$1" in
         echo -e "${RED}========================================${NC}"
         echo -e "${WHITE} BURN PROTOCOL INITIATED${NC}"
         echo -e "${RED}========================================${NC}"
-        read -p "Select protocol (1=File, 2=Bank, 3=Floppy, 4=Reset): " burn_choice
+        echo -e " 1) File         (Erase specific document)"
+        echo -e " 2) Bank         (Purge local WordBank)"
+        echo -e " 3) Floppy       (Format mounted physical disk)"
+        echo -e " 4) Reset        (Full system ledger & bank reset)"
+        echo -e " 5) Virtual Floppy (Unmount & delete virtual .img)"
+        echo -e "${RED}========================================${NC}"
+        read -p "Select protocol (1-5): " burn_choice
 
         case "$burn_choice" in
             1)
                 read -p "Enter exact filename to burn (e.g. story.txt): " target
-                FOUND=$(find "$BANK_DIR" -name "$target")
+                FOUND=$(find "$BANK_DIR" -type f -name "$target" | head -n 1)
                 if [ -n "$FOUND" ]; then
                     rm -f "$FOUND"
                     echo -e "${RED}Erased.${NC}"
                 else
                     echo -e "${ORANGE}Not found.${NC}"
                 fi
+                press_enter
                 ;;
             2)
-                rm -rf "$BANK_DIR"/text/* "$BANK_DIR"/audio/* "$BANK_DIR"/images/*
+                rm -rf "$BANK_DIR"/text/* "$BANK_DIR"/audio/* "$BANK_DIR"/images/* "$BANK_DIR"/games/*
                 echo -e "${RED}Entire WordBank purged.${NC}"
                 ;;
             3)
@@ -787,8 +1150,18 @@ case "$1" in
                 ;;
             4)
                 > "$LEDGER_FILE"
-                rm -rf "$BANK_DIR"/text/* "$BANK_DIR"/audio/* "$BANK_DIR"/images/*
+                rm -rf "$BANK_DIR"/text/* "$BANK_DIR"/audio/* "$BANK_DIR"/images/* "$BANK_DIR"/games/*
                 echo -e "${RED}System Reset Complete.${NC}"
+                ;;
+            5)
+                if [ -f "$VIRTUAL_IMG" ]; then
+                    sudo umount "$FLOPPY_DIR" 2>/dev/null
+                    rm -f "$VIRTUAL_IMG"
+                    echo -e "${RED}Virtual Floppy image destroyed.${NC}"
+                else
+                    echo -e "${ORANGE}No virtual floppy image found.${NC}"
+                fi
+                press_enter
                 ;;
         esac
         exit 0
