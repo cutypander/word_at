@@ -1382,7 +1382,8 @@ if os.path.exists(sub_path):
     with open(sub_path, 'r') as f:
         subs = [line.strip() for line in f if line.strip()]
 
-sys.stdout.write('\033[2J') 
+# Flood fill terminal with true black background before playback
+sys.stdout.write('\033[48;2;0;0;0m\033[2J') 
 frame_count = 0
 
 while cap.isOpened():
@@ -1399,7 +1400,6 @@ while cap.isOpened():
         
     aspect = gray.shape[0] / gray.shape[1]
     
-    # PERFORMANCE LOCK: Terminal stdout will choke on massive True Color strings
     if use_color and width > 110:
         width = 110
         
@@ -1421,8 +1421,8 @@ while cap.isOpened():
                 b, g, r = resized_color[y, x]
                 line_chars.append(f'\033[38;2;{r};{g};{b}m{char}')
             else:
-                line_chars.append(f'\033[0;32m{char}')
-        ascii_lines.append(''.join(line_chars) + '\033[0m')
+                line_chars.append(f'\033[38;2;0;255;0m{char}')
+        ascii_lines.append(''.join(line_chars))
         
     ascii_frame = '\n'.join(ascii_lines)
         
@@ -1430,7 +1430,7 @@ while cap.isOpened():
         sub_idx = int((frame_count / fps) // 3) % len(subs)
         current_sub = subs[sub_idx]
         pad = max(0, (width - len(current_sub)) // 2)
-        sub_line = (' ' * pad) + '\033[1;37m' + current_sub + '\033[0m'
+        sub_line = (' ' * pad) + '\033[1;37m' + current_sub + '\033[48;2;0;0;0m'
         lines = ascii_frame.split('\n')
         if len(lines) > 3:
             lines[-4] = sub_line
@@ -1447,7 +1447,8 @@ while cap.isOpened():
     frame_count += 1
 
 cap.release()
-sys.stdout.write('\033[2J\033[H\033[0m') 
+# Reset terminal background and text color entirely before returning to OS
+sys.stdout.write('\033[0m\033[2J\033[H') 
 " "$FILE_PATH" "$SUB_PATH" "$color_mode"
         fi
         exit 0
