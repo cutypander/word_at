@@ -29,7 +29,6 @@ touch "$LEDGER_FILE"
 touch "$STATE_FILE"
 
 # --- STATE MEMORY LOAD ---
-# This cures the amnesia bug. Every command now checks what ?scan found last.
 source "$STATE_FILE" 2>/dev/null
 [ -z "$ACTIVE_TARGET" ] && ACTIVE_TARGET="NONE"
 [ -z "$MEDIA_TYPE" ] && MEDIA_TYPE="NONE"
@@ -337,6 +336,13 @@ file_to_floppy_module() {
                 return
             fi
 
+            # BUG FIX: Hard failsafe if disk is already full to prevent zero-division math crash
+            if [ "$FREE_SPACE_KB" -lt 50 ]; then
+                echo -e "${RED}CRITICAL ERROR: Insufficient magnetic surface space for compression.${NC}"
+                press_enter
+                return
+            fi
+
             shopt -s nullglob
             audio_files=("$BANK_DIR"/audio/*.mp3)
             shopt -u nullglob
@@ -378,7 +384,7 @@ file_to_floppy_module() {
                 3) TARGET_BITRATE="8k" ;;
                 4) 
                     DURATION=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$SELECTED_FILE" | awk '{print int($1)}')
-                    [ "$DURATION" -le 0 ] && DURATION=1
+                    [ -z "$DURATION" ] || [ "$DURATION" -le 0 ] && DURATION=1
                     MAX_BITRATE=$(( (FREE_SPACE_KB * 8) / DURATION ))
                     SAFE_BITRATE=$(( MAX_BITRATE * 95 / 100 ))
                     
@@ -522,7 +528,6 @@ from math import *
 
 expr = sys.argv[1]
 
-# Erase spaces entirely to protect bracket parsing logic and auto-convert ^ to **
 s = expr.replace('{','(').replace('}',')').replace('[','(').replace(']',')').replace('x','*').replace('X','*').replace('^','**')
 s = s.replace(' ', '')
 
@@ -889,11 +894,19 @@ case "$1" in
                     BAD_COUNT=0
                     echo -e "${GREEN}Virtual Environment detected. Surface integrity is artificially 100%.${NC}"
                 else
-                    BAD_COUNT=$(sudo badblocks -q "$DEVICE" | wc -l)
-                    if [ "$BAD_COUNT" -gt 0 ]; then
-                        echo -e "${RED}WARNING: $BAD_COUNT dead sectors detected.${NC}"
-                    else
+                    if ! BAD_OUTPUT=$(sudo badblocks "$DEVICE" 2>/dev/null); then
+                        echo -e "${RED}CRITICAL ERROR: Magnetic scan failed. The hardware may be locked or unresponsive.${NC}"
+                        echo -e "${RED}Initialization aborted.${NC}"
+                        press_enter
+                        exit 1
+                    fi
+                    
+                    if [ -z "$BAD_OUTPUT" ]; then
+                        BAD_COUNT=0
                         echo -e "${GREEN}Scan complete. Surface integrity is 100%.${NC}"
+                    else
+                        BAD_COUNT=$(echo "$BAD_OUTPUT" | wc -l)
+                        echo -e "${RED}WARNING: $BAD_COUNT dead sectors detected.${NC}"
                     fi
                 fi
                 
@@ -970,8 +983,11 @@ case "$1" in
         
         SELECTED_GAME="${all_games[$((choice-1))]}"
         
+        # BUG FIX: Ensure the python script executes within its own directory to load local assets properly
         clear
-        python3 "$SELECTED_GAME"
+        GAME_DIR=$(dirname "$SELECTED_GAME")
+        GAME_FILE=$(basename "$SELECTED_GAME")
+        (cd "$GAME_DIR" && python3 "$GAME_FILE")
         
         clear
         echo -e "${ORANGE}========================================${NC}"
@@ -985,18 +1001,15 @@ case "$1" in
         echo -e "${WHITE} HARDWARE INTERROGATION PROTOCOL${NC}"
         echo -e "${ORANGE}========================================${NC}"
         
-        # 1. Check for physical floppy
         if lsblk | grep -q "fd0"; then
             echo "ACTIVE_TARGET=/mnt/floppy" > "$STATE_FILE"
             echo "MEDIA_TYPE=MAGNETIC" >> "$STATE_FILE"
             echo -e "${WHITE}[ STATUS: MAGNETIC MEDIA DRIVE DETECTED AT /mnt/floppy ]${NC}"
             echo -e "${GREEN}[ SYSTEM ALIGNMENT: READY ]${NC}"
             
-        # 2. Check for USB Storage
         elif lsblk -nr -o NAME,TRAN | grep -q "usb"; then
             USB_PART=$(lsblk -nr -o NAME,TRAN | awk '$2=="usb" {print $1}' | grep '[0-9]' | head -n 1)
             sudo mkdir -p /media/pi/USB_STICK
-            # Auto-mount for headless operations
             if ! grep -qs "/media/pi/USB_STICK" /proc/mounts; then
                 sudo mount "/dev/$USB_PART" /media/pi/USB_STICK 2>/dev/null
             fi
@@ -1032,7 +1045,9 @@ case "$1" in
                         echo -e "${GREEN}Virtual Floppy Image detected. Magnetic integrity is artificially 100%.${NC}"
                     else
                         echo -e "${ORANGE}Listening for dead sectors on $DEVICE...${NC}"
-                        sudo badblocks -v "$DEVICE"
+                        if ! sudo badblocks -v "$DEVICE"; then
+                            echo -e "${RED}ERROR: Magnetic scan failed to access the device. Hardware may be locked.${NC}"
+                        fi
                     fi
                 else
                     echo -e "${RED}No media target mounted.${NC}"
@@ -1068,7 +1083,9 @@ case "$1" in
                         if [ -f "$ACTIVE_TARGET/$AUTORUN_FILE" ]; then
                             echo -e "${WHITE}Auto-Run triggered: $AUTORUN_FILE${NC}"
                             if [[ "$AUTORUN_FILE" == *.py ]]; then
-                                python3 "$ACTIVE_TARGET/$AUTORUN_FILE"
+                                GAME_DIR=$(dirname "$ACTIVE_TARGET/$AUTORUN_FILE")
+                                GAME_FILE=$(basename "$ACTIVE_TARGET/$AUTORUN_FILE")
+                                (cd "$GAME_DIR" && python3 "$GAME_FILE")
                             elif [[ "$AUTORUN_FILE" == *.mp3 ]]; then
                                 mpg123 -q "$ACTIVE_TARGET/$AUTORUN_FILE" 2>/dev/null
                             elif [[ "$AUTORUN_FILE" == *.sh ]]; then
@@ -1106,12 +1123,11 @@ case "$1" in
                     echo -e "${WHITE}Mounting to /mnt/floppy...${NC}"
                     sudo mount -o loop "$VIRTUAL_IMG" "/mnt/floppy"
                     
-                    # Force the state file to recognize the virtual drive
                     echo "ACTIVE_TARGET=/mnt/floppy" > "$STATE_FILE"
                     echo "MEDIA_TYPE=VIRTUAL_MAGNETIC" >> "$STATE_FILE"
                     
                     echo -e "${GREEN}Virtual Emulator Online. System sees it as physical hardware.${NC}"
-                    echo -e "${ORANGE}Don't forget to run 'word@ init' to stamp it!${NC}"
+                    echo -e "${ORANGE}Don't forget to run 'word@ init' and select 'Initialize Hardware' to stamp it!${NC}"
                 fi
                 press_enter
                 ;;
@@ -1148,7 +1164,7 @@ case "$1" in
             echo -e "${ORANGE}========================================${NC}"
             mpg123 -q "$BANK_DIR/audio/$target" 2>/dev/null
 
-        # --- THE VIDEO TO ASCII ENGINE ---
+        # BUG FIX: Video render dynamically targets terminal resolution and eliminates screen wipe strobe logic.
         elif [[ "$target" == *.mp4 ]] && [ -f "$BANK_DIR/video/$target" ]; then
             if ! command -v python3 >/dev/null 2>&1; then
                 echo -e "${RED}python3 missing.${NC}"
@@ -1168,24 +1184,33 @@ except ImportError:
 chars = ['@', '#', 'S', '%', '?', '*', '+', ';', ':', ',', '.']
 cap = cv2.VideoCapture('$BANK_DIR/video/$target')
 
+sys.stdout.write('\033[2J') 
 while cap.isOpened():
     ret, frame = cap.read()
     if not ret: break
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    
+    try:
+        width = os.get_terminal_size().columns
+    except OSError:
+        width = 80
+        
     aspect = gray.shape[0] / gray.shape[1]
-    width = 80
-    height = int(width * aspect * 0.55)
+    height = int(width * aspect * 0.45) 
+    
     resized = cv2.resize(gray, (width, height))
     ascii_frame = ''
     for row in resized:
         for pixel in row:
             ascii_frame += chars[pixel // 25]
         ascii_frame += '\n'
-    # Clears screen and prints frame smoothly
-    sys.stdout.write('\033[2J\033[H' + ascii_frame)
+        
+    sys.stdout.write('\033[H' + ascii_frame)
     sys.stdout.flush()
-    time.sleep(0.03)
+    time.sleep(0.033)
+
 cap.release()
+sys.stdout.write('\033[2J\033[H') 
 "
         else
             echo -e "${RED}Target '$target' not found in WordBank.${NC}"
@@ -1260,7 +1285,9 @@ cap.release()
                 ;;
             3)
                 if [ "$ACTIVE_TARGET" != "NONE" ]; then
-                    sudo rm -rf "$ACTIVE_TARGET"/* && echo -e "${RED}Physical media wiped.${NC}"
+                    # BUG FIX: Forces deletion of hidden files so the disk ID is actually destroyed
+                    sudo rm -rf "${ACTIVE_TARGET:?}"/* "${ACTIVE_TARGET:?}"/.[!.]* 2>/dev/null
+                    echo -e "${RED}Physical media wiped.${NC}"
                 else
                     echo -e "${RED}No target mounted to wipe.${NC}"
                 fi
