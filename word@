@@ -1292,7 +1292,6 @@ case "$1" in
         FILE_PATH=""
         FILE_TYPE=""
         
-        # Universal Media Locator (Checks Bank, then Floppy/USB)
         if [ -f "$BANK_DIR/text/$target" ]; then
             FILE_PATH="$BANK_DIR/text/$target"
             FILE_TYPE="text"
@@ -1349,7 +1348,6 @@ case "$1" in
                 exit 1
             fi
             
-            # Universal Subtitle Locator
             BASENAME="${target%.*}"
             SUB_PATH="$BANK_DIR/text/$BASENAME.txt"
             if [ ! -f "$SUB_PATH" ] && [ "$ACTIVE_TARGET" != "NONE" ] && [ -f "$ACTIVE_TARGET/$BASENAME.txt" ]; then
@@ -1359,6 +1357,8 @@ case "$1" in
             echo -e "${ORANGE}========================================${NC}"
             echo -e "${WHITE} INITIALIZING VIDEO-TO-ASCII ENGINE${NC}"
             echo -e "${ORANGE}========================================${NC}"
+            read -p " Playback Mode [1] Classic Terminal [2] True Color: " color_mode
+            
             python3 -c "
 import os, time, sys
 try:
@@ -1370,6 +1370,7 @@ except ImportError:
 chars = ['@', '#', 'S', '%', '?', '*', '+', ';', ':', ',', '.']
 vid_path = sys.argv[1]
 sub_path = sys.argv[2]
+use_color = sys.argv[3] == '2'
 cap = cv2.VideoCapture(vid_path)
 
 fps = cap.get(cv2.CAP_PROP_FPS)
@@ -1397,14 +1398,33 @@ while cap.isOpened():
         width = 80
         
     aspect = gray.shape[0] / gray.shape[1]
+    
+    # PERFORMANCE LOCK: Terminal stdout will choke on massive True Color strings
+    if use_color and width > 110:
+        width = 110
+        
     height = int(width * aspect * 0.45) 
     
-    resized = cv2.resize(gray, (width, height))
-    ascii_frame = ''
-    for row in resized:
-        for pixel in row:
-            ascii_frame += chars[pixel // 25]
-        ascii_frame += '\n'
+    resized_gray = cv2.resize(gray, (width, height))
+    if use_color:
+        resized_color = cv2.resize(frame, (width, height))
+        
+    ascii_lines = []
+    for y in range(height):
+        line_chars = []
+        for x in range(width):
+            char_idx = resized_gray[y, x] // 25
+            if char_idx > 10: char_idx = 10
+            char = chars[char_idx]
+            
+            if use_color:
+                b, g, r = resized_color[y, x]
+                line_chars.append(f'\033[38;2;{r};{g};{b}m{char}')
+            else:
+                line_chars.append(f'\033[0;32m{char}')
+        ascii_lines.append(''.join(line_chars) + '\033[0m')
+        
+    ascii_frame = '\n'.join(ascii_lines)
         
     if subs:
         sub_idx = int((frame_count / fps) // 3) % len(subs)
@@ -1427,8 +1447,8 @@ while cap.isOpened():
     frame_count += 1
 
 cap.release()
-sys.stdout.write('\033[2J\033[H') 
-" "$FILE_PATH" "$SUB_PATH"
+sys.stdout.write('\033[2J\033[H\033[0m') 
+" "$FILE_PATH" "$SUB_PATH" "$color_mode"
         fi
         exit 0
         ;;
