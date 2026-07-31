@@ -268,7 +268,7 @@ file_to_floppy_module() {
 
     CURRENT_ID=$(cat "$ACTIVE_TARGET/.disk_id" 2>/dev/null)
     if [ -z "$CURRENT_ID" ]; then
-        echo -e "${RED}[ MEDIA UNINITIALIZED. RUN 'word@ init initialize' FIRST ]${NC}"
+        echo -e "${RED}[ MEDIA UNINITIALIZED. RUN 'word@ init' FIRST ]${NC}"
         press_enter
         return
     fi
@@ -711,9 +711,7 @@ case "$1" in
             echo -e "├── view [target.ext]"
             echo -e "├── ?play (Game Console)"
             echo -e "├── FTF (File To Floppy Archive Suite)"
-            echo -e "├── init"
-            echo -e "│   ├── initialize (Formats raw hardware)"
-            echo -e "│   └── emulate (Virtual floppy override)"
+            echo -e "├── init (Initialization & Emulation Suite)"
             echo -e "├── ?calc"
             echo -e "├── ?inst (Package Manager & GitHub Fetcher)"
             echo -e "├── ?scan"
@@ -733,7 +731,7 @@ case "$1" in
             echo -e "${ORANGE}?inst${NC}            - Package Manager. Installs dependencies or pulls code directly from GitHub."
             echo -e "${ORANGE}?scan${NC}            - Hardware Interrogation. Hunts for USBs or Magnetic drives and sets active targets."
             echo -e "${ORANGE}del!${NC}             - Burn protocols to safely erase files, banks, or virtual floppies."
-            echo -e "${ORANGE}init${NC}             - Initialize/Emulate drives. Run 'init initialize' to stamp a disk."
+            echo -e "${ORANGE}init${NC}             - Interactive menu to Format media or Emulate a Virtual Floppy."
             echo -e "${ORANGE}update${NC}           - Pulls the latest word@ script from GitHub."
             
         else
@@ -748,7 +746,7 @@ case "$1" in
             echo -e "  ${WHITE}?inst${NC}     - Package Manager & GitHub Fetcher"
             echo -e "  ${WHITE}?scan${NC}     - Hunt for Hardware (MUST RUN FIRST)"
             echo -e "  ${WHITE}del!${NC}      - Erase (File, Bank, Floppy, Virtual, Reset)"
-            echo -e "  ${WHITE}init${NC}      - Use 'init emulate' or 'init initialize'"
+            echo -e "  ${WHITE}init${NC}      - Open the Format & Emulation Suite"
             echo -e "  ${WHITE}?flop${NC}     - Floppy drive hardware status"
             echo -e "  ${WHITE}?gath${NC}     - WordBank file sizes/weights"
             echo -e "  ${WHITE}?when${NC}     - Global file timestamps"
@@ -849,7 +847,7 @@ case "$1" in
         exit 0
         ;;
 
-"init")
+    "init")
         clear
         echo -e "${ORANGE}========================================${NC}"
         echo -e "${WHITE} INITIALIZATION & EMULATION SUITE${NC}"
@@ -917,43 +915,6 @@ case "$1" in
             *)
                 echo -e "${RED}Invalid selection.${NC}"
                 sleep 1
-                ;;
-        esac
-        exit 0
-        ;;
-
-                NEW_ID=$(tr -dc A-Z0-9 </dev/urandom | head -c 6)
-                WORD1=${NATO[$RANDOM % 26]}
-                if grep -q "NAME: $WORD1" "$LEDGER_FILE"; then
-                    WORD2=${NATO[$RANDOM % 26]}
-                    DISK_NAME="$WORD1-$WORD2"
-                else
-                    DISK_NAME="$WORD1"
-                fi
-                
-                echo "$NEW_ID" > "$ACTIVE_TARGET/.disk_id"
-                echo -e "${WHITE}Hardware Stamped. Assigned Name: $DISK_NAME${NC}"
-                
-                echo -e "${ORANGE}Running deep magnetic scan...${NC}"
-                DEVICE=$(df "$ACTIVE_TARGET" | tail -1 | awk '{print $1}')
-                
-                if [[ "$DEVICE" == *loop* ]] || [ ! -b "$DEVICE" ]; then
-                    BAD_COUNT=0
-                    echo -e "${GREEN}Virtual Environment detected. Surface integrity is artificially 100%.${NC}"
-                else
-                    BAD_COUNT=$(sudo badblocks -q "$DEVICE" | wc -l)
-                    if [ "$BAD_COUNT" -gt 0 ]; then
-                        echo -e "${RED}WARNING: $BAD_COUNT dead sectors detected.${NC}"
-                    else
-                        echo -e "${GREEN}Scan complete. Surface integrity is 100%.${NC}"
-                    fi
-                fi
-                
-                echo "ID: $NEW_ID | NAME: $DISK_NAME | BAD_BLOCKS: $BAD_COUNT" >> "$LEDGER_FILE"
-                echo -e "${GREEN}Media successfully integrated into the ecosystem.${NC}"
-                ;;
-            *)
-                echo -e "${RED}Invalid usage. Use 'word@ init emulate' or 'word@ init initialize'${NC}"
                 ;;
         esac
         exit 0
@@ -1150,7 +1111,7 @@ case "$1" in
                     echo "MEDIA_TYPE=VIRTUAL_MAGNETIC" >> "$STATE_FILE"
                     
                     echo -e "${GREEN}Virtual Emulator Online. System sees it as physical hardware.${NC}"
-                    echo -e "${ORANGE}Don't forget to run 'word@ init initialize' to stamp it!${NC}"
+                    echo -e "${ORANGE}Don't forget to run 'word@ init' to stamp it!${NC}"
                 fi
                 press_enter
                 ;;
