@@ -849,26 +849,79 @@ case "$1" in
         exit 0
         ;;
 
-    "init")
-        case "$2" in
-            emulate)
-                if [ "$MEDIA_TYPE" = "SOLID_STATE" ]; then
-                    echo -e "${WHITE}[ OVERRIDING USB ARCHITECTURE ]${NC}"
-                    echo -e "${GREEN}[ VIRTUAL FLOPPY ENVIRONMENT ESTABLISHED AT $ACTIVE_TARGET ]${NC}"
-                else
-                    echo -e "${RED}[ ERROR: NO USB DETECTED FOR EMULATION. RUN ?scan FIRST. ]${NC}"
-                fi
-                ;;
-            initialize)
+"init")
+        clear
+        echo -e "${ORANGE}========================================${NC}"
+        echo -e "${WHITE} INITIALIZATION & EMULATION SUITE${NC}"
+        echo -e "${ORANGE} Target Path: $ACTIVE_TARGET${NC}"
+        echo -e "${ORANGE}========================================${NC}"
+        echo -e "  1) Initialize Hardware  (Stamp and format mounted media)"
+        echo -e "  2) Emulate Virtual Disk (Override USB safety locks)"
+        echo -e "  q) Return to OS"
+        echo -e "${ORANGE}========================================${NC}"
+        read -p " Select protocol: " init_choice
+
+        case "$init_choice" in
+            1)
                 if [ "$ACTIVE_TARGET" = "NONE" ] || [ ! -d "$ACTIVE_TARGET" ]; then
                     echo -e "${RED}[ FATAL ERROR: NO HARDWARE MOUNTED. RUN ?scan FIRST. ]${NC}"
                     exit 1
                 fi
                 
-                echo -e "${ORANGE}========================================${NC}"
+                echo -e "\n${ORANGE}========================================${NC}"
                 echo -e "${WHITE}   INITIALIZING HARDWARE AT $ACTIVE_TARGET${NC}"
                 echo -e "${ORANGE}========================================${NC}"
                 
+                NEW_ID=$(tr -dc A-Z0-9 </dev/urandom | head -c 6)
+                WORD1=${NATO[$RANDOM % 26]}
+                if grep -q "NAME: $WORD1" "$LEDGER_FILE"; then
+                    WORD2=${NATO[$RANDOM % 26]}
+                    DISK_NAME="$WORD1-$WORD2"
+                else
+                    DISK_NAME="$WORD1"
+                fi
+                
+                echo "$NEW_ID" > "$ACTIVE_TARGET/.disk_id"
+                echo -e "${WHITE}Hardware Stamped. Assigned Name: $DISK_NAME${NC}"
+                
+                echo -e "${ORANGE}Running deep magnetic scan...${NC}"
+                DEVICE=$(df "$ACTIVE_TARGET" | tail -1 | awk '{print $1}')
+                
+                if [[ "$DEVICE" == *loop* ]] || [ ! -b "$DEVICE" ]; then
+                    BAD_COUNT=0
+                    echo -e "${GREEN}Virtual Environment detected. Surface integrity is artificially 100%.${NC}"
+                else
+                    BAD_COUNT=$(sudo badblocks -q "$DEVICE" | wc -l)
+                    if [ "$BAD_COUNT" -gt 0 ]; then
+                        echo -e "${RED}WARNING: $BAD_COUNT dead sectors detected.${NC}"
+                    else
+                        echo -e "${GREEN}Scan complete. Surface integrity is 100%.${NC}"
+                    fi
+                fi
+                
+                echo "ID: $NEW_ID | NAME: $DISK_NAME | BAD_BLOCKS: $BAD_COUNT" >> "$LEDGER_FILE"
+                echo -e "${GREEN}Media successfully integrated into the ecosystem.${NC}"
+                press_enter
+                ;;
+            2)
+                if [ "$MEDIA_TYPE" = "SOLID_STATE" ]; then
+                    echo -e "\n${WHITE}[ OVERRIDING USB ARCHITECTURE ]${NC}"
+                    echo -e "${GREEN}[ VIRTUAL FLOPPY ENVIRONMENT ESTABLISHED AT $ACTIVE_TARGET ]${NC}"
+                else
+                    echo -e "\n${RED}[ ERROR: NO USB DETECTED FOR EMULATION. RUN ?scan FIRST. ]${NC}"
+                fi
+                press_enter
+                ;;
+            q|Q) 
+                ;;
+            *)
+                echo -e "${RED}Invalid selection.${NC}"
+                sleep 1
+                ;;
+        esac
+        exit 0
+        ;;
+
                 NEW_ID=$(tr -dc A-Z0-9 </dev/urandom | head -c 6)
                 WORD1=${NATO[$RANDOM % 26]}
                 if grep -q "NAME: $WORD1" "$LEDGER_FILE"; then
