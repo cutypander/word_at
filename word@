@@ -1360,6 +1360,9 @@ case "$1" in
             read -p " Playback Mode [1] Classic Terminal [2] True Color: " color_mode
             read -p " Audio Sync [1] Muted [2] 8-Bit Retro Crunch [3] 16-Bit Sampled: " audio_mode
             
+            # PRE-PURGE TO PREVENT GHOST AUDIO
+            rm -f "/tmp/word_audio.wav" 2>/dev/null
+            
             AUDIO_PID=""
             if [ "$audio_mode" == "2" ]; then
                 echo -e "${WHITE}Extracting 8-bit audio track to RAM...${NC}"
@@ -1376,6 +1379,11 @@ case "$1" in
                     AUDIO_PID=$!
                 fi
             fi
+            
+            tput civis # Hide terminal cursor during playback to prevent flickering
+            
+            # Establish Bash Trap to guarantee cleanup if user interrupts playback
+            trap 'if [ -n "$AUDIO_PID" ]; then kill $AUDIO_PID 2>/dev/null; killall aplay 2>/dev/null; fi; rm -f "/tmp/word_audio.wav" 2>/dev/null; tput cnorm; echo -e "\033[0m\033[2J\033[H"; exit 0' SIGINT SIGTERM
             
             python3 -c "
 import os, time, sys
@@ -1400,79 +1408,84 @@ if os.path.exists(sub_path):
     with open(sub_path, 'r') as f:
         subs = [line.strip() for line in f if line.strip()]
 
-# Flood fill terminal with true black background before playback
 sys.stdout.write('\033[48;2;0;0;0m\033[2J') 
 frame_count = 0
 
-while cap.isOpened():
-    start_time = time.time()
-    ret, frame = cap.read()
-    if not ret: break
-    
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    
-    try:
-        width = os.get_terminal_size().columns
-    except OSError:
-        width = 80
+try:
+    while cap.isOpened():
+        start_time = time.time()
+        ret, frame = cap.read()
+        if not ret: break
         
-    aspect = gray.shape[0] / gray.shape[1]
-    
-    if use_color and width > 110:
-        width = 110
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         
-    height = int(width * aspect * 0.45) 
-    
-    resized_gray = cv2.resize(gray, (width, height))
-    if use_color:
-        resized_color = cv2.resize(frame, (width, height))
-        
-    ascii_lines = []
-    for y in range(height):
-        line_chars = []
-        for x in range(width):
-            char_idx = resized_gray[y, x] // 25
-            if char_idx > 10: char_idx = 10
-            char = chars[char_idx]
+        try:
+            width = os.get_terminal_size().columns
+        except OSError:
+            width = 80
             
-            if use_color:
-                b, g, r = resized_color[y, x]
-                line_chars.append(f'\033[38;2;{r};{g};{b}m{char}')
-            else:
-                line_chars.append(f'\033[38;2;0;255;0m{char}')
-        ascii_lines.append(''.join(line_chars))
+        aspect = gray.shape[0] / gray.shape[1]
         
-    ascii_frame = '\n'.join(ascii_lines)
+        if use_color and width > 110:
+            width = 110
+            
+        height = int(width * aspect * 0.45) 
         
-    if subs:
-        sub_idx = int((frame_count / fps) // 3) % len(subs)
-        current_sub = subs[sub_idx]
-        pad = max(0, (width - len(current_sub)) // 2)
-        sub_line = (' ' * pad) + '\033[1;37m' + current_sub + '\033[48;2;0;0;0m'
-        lines = ascii_frame.split('\n')
-        if len(lines) > 3:
-            lines[-4] = sub_line
-        ascii_frame = '\n'.join(lines)
+        resized_gray = cv2.resize(gray, (width, height))
+        if use_color:
+            resized_color = cv2.resize(frame, (width, height))
+            
+        ascii_lines = []
+        for y in range(height):
+            line_chars = []
+            for x in range(width):
+                char_idx = resized_gray[y, x] // 25
+                if char_idx > 10: char_idx = 10
+                char = chars[char_idx]
+                
+                if use_color:
+                    b, g, r = resized_color[y, x]
+                    line_chars.append(f'\033[38;2;{r};{g};{b}m{char}')
+                else:
+                    line_chars.append(f'\033[38;2;0;255;0m{char}')
+            ascii_lines.append(''.join(line_chars))
+            
+        ascii_frame = '\n'.join(ascii_lines)
+            
+        if subs:
+            sub_idx = int((frame_count / fps) // 3) % len(subs)
+            current_sub = subs[sub_idx]
+            pad = max(0, (width - len(current_sub)) // 2)
+            sub_line = (' ' * pad) + '\033[1;37m' + current_sub + '\033[48;2;0;0;0m'
+            lines = ascii_frame.split('\n')
+            if len(lines) > 3:
+                lines[-4] = sub_line
+            ascii_frame = '\n'.join(lines)
+            
+        sys.stdout.write('\033[H' + ascii_frame)
+        sys.stdout.flush()
         
-    sys.stdout.write('\033[H' + ascii_frame)
-    sys.stdout.flush()
-    
-    elapsed = time.time() - start_time
-    sleep_time = target_delay - elapsed
-    if sleep_time > 0:
-        time.sleep(sleep_time)
-        
-    frame_count += 1
-
-cap.release()
-# Reset terminal background and text color entirely before returning to OS
-sys.stdout.write('\033[0m\033[2J\033[H') 
+        elapsed = time.time() - start_time
+        sleep_time = target_delay - elapsed
+        if sleep_time > 0:
+            time.sleep(sleep_time)
+            
+        frame_count += 1
+except KeyboardInterrupt:
+    pass
+finally:
+    cap.release()
+    sys.stdout.write('\033[0m\033[2J\033[H') 
 " "$FILE_PATH" "$SUB_PATH" "$color_mode"
 
+            # Standard cleanup if video finishes naturally
             if [ -n "$AUDIO_PID" ]; then
                 kill $AUDIO_PID 2>/dev/null
-                rm -f "/tmp/word_audio.wav" 2>/dev/null
+                killall aplay 2>/dev/null
             fi
+            rm -f "/tmp/word_audio.wav" 2>/dev/null
+            tput cnorm
+            trap - SIGINT SIGTERM
         fi
         exit 0
         ;;
