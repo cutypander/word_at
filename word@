@@ -1357,7 +1357,16 @@ case "$1" in
             echo -e "${ORANGE}========================================${NC}"
             echo -e "${WHITE} INITIALIZING VIDEO-TO-ASCII ENGINE${NC}"
             echo -e "${ORANGE}========================================${NC}"
-            read -p " Playback Mode [1] Classic Terminal [2] True Color: " color_mode
+            read -p " Playback Mode [1] Pure White [2] Phosphor Green [3] True Color: " color_mode
+            
+            echo -e "\n${ORANGE}Select Resolution Scale:${NC}"
+            echo -e "  1) Standard (80-col  - Fast & Stable)"
+            echo -e "  2) High     (120-col - Crisp & Tighter Color)"
+            echo -e "  ${RED}3) MAX      (Uncapped Terminal Width - WARNING: May cause severe lag)${NC}"
+            read -p " Choice (1-3): " res_mode
+            if [[ "$res_mode" != "1" && "$res_mode" != "2" && "$res_mode" != "3" ]]; then res_mode="1"; fi
+            
+            echo ""
             read -p " Audio Sync [1] Muted [2] 8-Bit Retro Crunch [3] 16-Bit Sampled: " audio_mode
             
             # PRE-PURGE TO PREVENT GHOST AUDIO
@@ -1380,9 +1389,8 @@ case "$1" in
                 fi
             fi
             
-            tput civis # Hide terminal cursor during playback to prevent flickering
+            tput civis 
             
-            # Establish Bash Trap to guarantee cleanup if user interrupts playback
             trap 'if [ -n "$AUDIO_PID" ]; then kill $AUDIO_PID 2>/dev/null; killall aplay 2>/dev/null; fi; rm -f "/tmp/word_audio.wav" 2>/dev/null; tput cnorm; echo -e "\033[0m\033[2J\033[H"; exit 0' SIGINT SIGTERM
             
             python3 -c "
@@ -1396,7 +1404,9 @@ except ImportError:
 chars = ['@', '#', 'S', '%', '?', '*', '+', ';', ':', ',', '.']
 vid_path = sys.argv[1]
 sub_path = sys.argv[2]
-use_color = sys.argv[3] == '2'
+use_color = sys.argv[3] == '3'
+use_green = sys.argv[3] == '2'
+res_mode = sys.argv[4]
 cap = cv2.VideoCapture(vid_path)
 
 fps = cap.get(cv2.CAP_PROP_FPS)
@@ -1420,15 +1430,19 @@ try:
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         
         try:
-            width = os.get_terminal_size().columns
+            term_width = os.get_terminal_size().columns
         except OSError:
-            width = 80
+            term_width = 80
+            
+        # RESOLUTION ENGINE CAP
+        if res_mode == '1':
+            width = min(80, term_width)
+        elif res_mode == '2':
+            width = min(120, term_width)
+        else:
+            width = term_width
             
         aspect = gray.shape[0] / gray.shape[1]
-        
-        if use_color and width > 110:
-            width = 110
-            
         height = int(width * aspect * 0.45) 
         
         resized_gray = cv2.resize(gray, (width, height))
@@ -1446,8 +1460,10 @@ try:
                 if use_color:
                     b, g, r = resized_color[y, x]
                     line_chars.append(f'\033[38;2;{r};{g};{b}m{char}')
-                else:
+                elif use_green:
                     line_chars.append(f'\033[38;2;0;255;0m{char}')
+                else:
+                    line_chars.append(f'\033[1;37m{char}')
             ascii_lines.append(''.join(line_chars))
             
         ascii_frame = '\n'.join(ascii_lines)
@@ -1476,9 +1492,8 @@ except KeyboardInterrupt:
 finally:
     cap.release()
     sys.stdout.write('\033[0m\033[2J\033[H') 
-" "$FILE_PATH" "$SUB_PATH" "$color_mode"
+" "$FILE_PATH" "$SUB_PATH" "$color_mode" "$res_mode"
 
-            # Standard cleanup if video finishes naturally
             if [ -n "$AUDIO_PID" ]; then
                 kill $AUDIO_PID 2>/dev/null
                 killall aplay 2>/dev/null
