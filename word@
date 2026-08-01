@@ -1358,6 +1358,24 @@ case "$1" in
             echo -e "${WHITE} INITIALIZING VIDEO-TO-ASCII ENGINE${NC}"
             echo -e "${ORANGE}========================================${NC}"
             read -p " Playback Mode [1] Classic Terminal [2] True Color: " color_mode
+            read -p " Audio Sync [1] Muted [2] 8-Bit Retro Crunch [3] 16-Bit Sampled: " audio_mode
+            
+            AUDIO_PID=""
+            if [ "$audio_mode" == "2" ]; then
+                echo -e "${WHITE}Extracting 8-bit audio track to RAM...${NC}"
+                ffmpeg -y -i "$FILE_PATH" -ar 8000 -ac 1 -c:a pcm_u8 "/tmp/word_audio.wav" >/dev/null 2>&1
+                if [ -f "/tmp/word_audio.wav" ]; then
+                    aplay -q "/tmp/word_audio.wav" 2>/dev/null &
+                    AUDIO_PID=$!
+                fi
+            elif [ "$audio_mode" == "3" ]; then
+                echo -e "${WHITE}Extracting 16-bit audio track to RAM...${NC}"
+                ffmpeg -y -i "$FILE_PATH" -ar 16000 -ac 1 -c:a pcm_s16le "/tmp/word_audio.wav" >/dev/null 2>&1
+                if [ -f "/tmp/word_audio.wav" ]; then
+                    aplay -q "/tmp/word_audio.wav" 2>/dev/null &
+                    AUDIO_PID=$!
+                fi
+            fi
             
             python3 -c "
 import os, time, sys
@@ -1450,6 +1468,11 @@ cap.release()
 # Reset terminal background and text color entirely before returning to OS
 sys.stdout.write('\033[0m\033[2J\033[H') 
 " "$FILE_PATH" "$SUB_PATH" "$color_mode"
+
+            if [ -n "$AUDIO_PID" ]; then
+                kill $AUDIO_PID 2>/dev/null
+                rm -f "/tmp/word_audio.wav" 2>/dev/null
+            fi
         fi
         exit 0
         ;;
