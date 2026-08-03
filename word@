@@ -7,6 +7,7 @@ BANK_DIR="$HOME/word_at_bank"
 LEDGER_FILE="$HOME/.floppy_ledger"
 VIRTUAL_IMG="$BANK_DIR/.virtual_floppy.img"
 STATE_FILE="$HOME/.word_at_state"
+TASK_DIR="/tmp/word_at_tasks"
 SAFE_OVERHEAD=50
 
 # The Word@ Color Palette
@@ -20,22 +21,17 @@ NC='\033[0m'
 NATO=(ALPHA BRAVO CHARLIE DELTA ECHO FOXTROT GOLF HOTEL INDIA JULIETT KILO LIMA MIKE NOVEMBER OSCAR PAPA QUEBEC ROMEO SIERRA TANGO UNIFORM VICTOR WHISKEY XRAY YANKEE ZULU)
 
 # Guarantee local Bank, Ledger, and Subfolders exist
-mkdir -p "$BANK_DIR/text"
-mkdir -p "$BANK_DIR/audio"
-mkdir -p "$BANK_DIR/images"
-mkdir -p "$BANK_DIR/games"
-mkdir -p "$BANK_DIR/video"
-touch "$LEDGER_FILE"
-touch "$STATE_FILE"
+mkdir -p "$BANK_DIR/text" "$BANK_DIR/audio" "$BANK_DIR/images" "$BANK_DIR/games" "$BANK_DIR/video"
+mkdir -p "$TASK_DIR"
+touch "$LEDGER_FILE" "$STATE_FILE"
 
 # --- STATE MEMORY LOAD ---
 source "$STATE_FILE" 2>/dev/null
 [ -z "$ACTIVE_TARGET" ] && ACTIVE_TARGET="NONE"
 [ -z "$MEDIA_TYPE" ] && MEDIA_TYPE="NONE"
 
-
 # ==========================================
-# GLOBAL HELPERS
+# GLOBAL HELPERS & THE HYPERVISOR
 # ==========================================
 press_enter() {
     echo -e "\n${WHITE}Press [ENTER] to continue...${NC}"
@@ -46,6 +42,54 @@ is_pkg_installed() {
     dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q "ok installed"
 }
 
+hypervisor_lock() {
+    local priority="$1"
+    local task_name="$2"
+    local pid=$$
+    
+    echo "$priority|$task_name" > "$TASK_DIR/$pid"
+    
+    for task_file in "$TASK_DIR"/*; do
+        if [ -f "$task_file" ]; then
+            t_pid=$(basename "$task_file")
+            if [ "$t_pid" != "$pid" ] && kill -0 "$t_pid" 2>/dev/null; then
+                t_pri=$(cut -d'|' -f1 "$task_file")
+                if [ "$t_pri" -lt "$priority" ]; then
+                    pkill -P "$t_pid" -SIGUSR1 2>/dev/null
+                fi
+            else
+                rm -f "$task_file" 2>/dev/null 
+            fi
+        fi
+    done
+}
+
+hypervisor_release() {
+    local pid=$$
+    rm -f "$TASK_DIR/$pid" 2>/dev/null
+    
+    local max_pri=0
+    for task_file in "$TASK_DIR"/*; do
+        if [ -f "$task_file" ]; then
+            t_pri=$(cut -d'|' -f1 "$task_file")
+            if [ "$t_pri" -gt "$max_pri" ]; then max_pri="$t_pri"; fi
+        fi
+    done
+
+    for task_file in "$TASK_DIR"/*; do
+        if [ -f "$task_file" ]; then
+            t_pid=$(basename "$task_file")
+            t_pri=$(cut -d'|' -f1 "$task_file")
+            if kill -0 "$t_pid" 2>/dev/null; then
+                if [ "$t_pri" -eq "$max_pri" ]; then
+                    pkill -P "$t_pid" -SIGUSR2 2>/dev/null
+                fi
+            else
+                rm -f "$task_file" 2>/dev/null
+            fi
+        fi
+    done
+}
 
 # ==========================================
 # word@ ?inst - SYSTEM PACKAGE MANAGER
@@ -57,83 +101,18 @@ installer_module() {
     local ALL_PKGS=("${BASE_PKGS[@]}" "${MEDIA_PKGS[@]}" "${EXTRA_PKGS[@]}")
 
     install_tier() {
-        local tier_name="$1"
-        shift
-        local pkgs=("$@")
-        local to_install=()
-
-        for pkg in "${pkgs[@]}"; do
-            if ! is_pkg_installed "$pkg"; then
-                to_install+=("$pkg")
-            fi
-        done
-
-        if [ ${#to_install[@]} -eq 0 ]; then
-            echo -e "\n${GREEN}All packages in this tier are already installed.${NC}"
-            sleep 2
-            return
-        fi
-
+        local tier_name="$1"; shift; local pkgs=("$@"); local to_install=()
+        for pkg in "${pkgs[@]}"; do ! is_pkg_installed "$pkg" && to_install+=("$pkg"); done
+        if [ ${#to_install[@]} -eq 0 ]; then echo -e "\n${GREEN}All packages in this tier are already installed.${NC}"; sleep 2; return; fi
         echo -e "\n${WHITE}The following packages will be installed for the $tier_name tier:${NC}"
-        for pkg in "${to_install[@]}"; do
-            echo -e " - ${ORANGE}$pkg${NC}"
-        done
-        
+        for pkg in "${to_install[@]}"; do echo -e " - ${ORANGE}$pkg${NC}"; done
         read -p "Proceed with installation? (Y/N): " confirm
         if [[ "${confirm,,}" == "y" ]]; then
-            echo -e "${ORANGE}Updating grid repositories...${NC}"
             sudo apt-get update -qq
-            for pkg in "${to_install[@]}"; do
-                echo -e "${WHITE}Installing $pkg...${NC}"
-                sudo apt-get install -y "$pkg"
-            done
+            for pkg in "${to_install[@]}"; do sudo apt-get install -y "$pkg"; done
             echo -e "${GREEN}Installation complete.${NC}"
-        else
-            echo -e "${WHITE}Installation aborted.${NC}"
         fi
         sleep 2
-    }
-
-    fetch_github() {
-        clear
-        echo -e "${ORANGE}========================================${NC}"
-        echo -e "${WHITE} GITHUB / REPOSITORY FETCHER${NC}"
-        echo -e "${ORANGE}========================================${NC}"
-        read -p " Enter RAW file URL: " raw_url
-        if [ -z "$raw_url" ]; then
-            echo -e "${RED}URL cannot be empty.${NC}"
-            sleep 2
-            return
-        fi
-
-        echo -e "\n${WHITE}Select Destination Category:${NC}"
-        echo -e " 1) Games   ($BANK_DIR/games/)"
-        echo -e " 2) Text    ($BANK_DIR/text/)"
-        echo -e " 3) Images  ($BANK_DIR/images/)"
-        echo -e " 4) Audio   ($BANK_DIR/audio/)"
-        read -p " Destination (1-4): " dest_choice
-
-        local dest_dir=""
-        case "$dest_choice" in
-            1) dest_dir="$BANK_DIR/games" ;;
-            2) dest_dir="$BANK_DIR/text" ;;
-            3) dest_dir="$BANK_DIR/images" ;;
-            4) dest_dir="$BANK_DIR/audio" ;;
-            *) echo -e "${RED}Invalid selection.${NC}"; sleep 1; return ;;
-        esac
-
-        local fname
-        fname=$(basename "$raw_url")
-        read -p " Save as filename [$fname]: " custom_fname
-        [ -n "$custom_fname" ] && fname="$custom_fname"
-
-        echo -e "\n${ORANGE}Fetching $fname...${NC}"
-        if curl -sL "$raw_url" -o "$dest_dir/$fname"; then
-            echo -e "${GREEN}Successfully pulled to $dest_dir/$fname${NC}"
-        else
-            echo -e "${RED}Download failed. Check URL or internet connection.${NC}"
-        fi
-        press_enter
     }
 
     while true; do
@@ -141,11 +120,7 @@ installer_module() {
         echo -e "${ORANGE}========================================${NC}"
         echo -e "${WHITE} word@ PACKAGE MANAGER${NC}"
         echo -e "${ORANGE}========================================${NC}"
-        echo -e "  1) Install Package Tiers"
-        echo -e "  2) View System Status"
-        echo -e "  3) Fetch from GitHub / Web"
-        echo -e "  4) Uninstall / Review a Package"
-        echo -e "  q) Return to OS"
+        echo -e "  1) Install Package Tiers\n  2) View System Status\n  q) Return to OS"
         echo -e "${ORANGE}========================================${NC}"
         read -p " Select action: " inst_choice
 
@@ -155,101 +130,23 @@ installer_module() {
                 echo -e "${ORANGE}========================================${NC}"
                 echo -e "${WHITE} INSTALLATION TIERS${NC}"
                 echo -e "${ORANGE}========================================${NC}"
-                echo -e "  1) Base    (Core python & curl engine)"
-                echo -e "  2) Media   (Audio, Video, Burning tools)"
-                echo -e "  3) Extras  (Game UI libraries, formatting)"
-                echo -e "  4) All     (Install everything)"
-                echo -e "  q) Cancel"
-                echo -e "${ORANGE}----------------------------------------${NC}"
+                echo -e "  1) Base\n  2) Media\n  3) Extras\n  4) All\n  q) Cancel"
                 read -p " Select tier: " tier_choice
-                
                 case "$tier_choice" in
                     1) install_tier "BASE" "${BASE_PKGS[@]}" ;;
                     2) install_tier "MEDIA" "${MEDIA_PKGS[@]}" ;;
                     3) install_tier "EXTRAS" "${EXTRA_PKGS[@]}" ;;
-                    4) install_tier "ALL (Advanced)" "${ALL_PKGS[@]}" ;;
+                    4) install_tier "ALL" "${ALL_PKGS[@]}" ;;
                     q|Q) ;;
-                    *) echo -e "${RED}Invalid selection.${NC}"; sleep 1 ;;
                 esac
                 ;;
             2)
                 clear
-                echo -e "${ORANGE}========================================${NC}"
-                echo -e "${WHITE} SYSTEM PACKAGE STATUS${NC}"
-                echo -e "${ORANGE}========================================${NC}"
-                
                 echo -e "${WHITE}[BASE CORE]${NC}"
-                for pkg in "${BASE_PKGS[@]}"; do
-                    if is_pkg_installed "$pkg"; then
-                        echo -e "  ${GREEN}[INSTALLED]${NC} $pkg"
-                    else
-                        echo -e "  ${RED}[MISSING]${NC}   $pkg"
-                    fi
-                done
-                
-                echo -e "\n${WHITE}[MEDIA GENERAL]${NC}"
-                for pkg in "${MEDIA_PKGS[@]}"; do
-                    if is_pkg_installed "$pkg"; then
-                        echo -e "  ${GREEN}[INSTALLED]${NC} $pkg"
-                    else
-                        echo -e "  ${RED}[MISSING]${NC}   $pkg"
-                    fi
-                done
-                
-                echo -e "\n${WHITE}[EXTRAS]${NC}"
-                for pkg in "${EXTRA_PKGS[@]}"; do
-                    if is_pkg_installed "$pkg"; then
-                        echo -e "  ${GREEN}[INSTALLED]${NC} $pkg"
-                    else
-                        echo -e "  ${RED}[MISSING]${NC}   $pkg"
-                    fi
-                done
-                
-                echo -e "\n${ORANGE}----------------------------------------${NC}"
+                for pkg in "${BASE_PKGS[@]}"; do is_pkg_installed "$pkg" && echo -e "  ${GREEN}[OK]${NC} $pkg" || echo -e "  ${RED}[MISSING]${NC} $pkg"; done
                 press_enter
                 ;;
-            3)
-                fetch_github
-                ;;
-            4)
-                clear
-                echo -e "${ORANGE}========================================${NC}"
-                echo -e "${WHITE} MODULE REVIEW & REMOVAL${NC}"
-                echo -e "${ORANGE}========================================${NC}"
-                echo -e " 1) python3         (Base - System Brain)"
-                echo -e " 2) ffmpeg          (Media - Audio Compression)"
-                echo -e " 3) mpg123          (Media - Audio Playback)"
-                echo -e " 4) alsa-utils      (Media - Mic Recording)"
-                echo -e " 5) wodim           (Media - Hardware Burning)"
-                echo -e " 6) python3-blessed (Extra - Game UI Library)"
-                echo -e " q) Cancel"
-                echo -e "${ORANGE}----------------------------------------${NC}"
-                read -p " Select module to review: " un_choice
-
-                case "$un_choice" in
-                    1|2|3|4|5)
-                        echo -e "\n${RED}[SYSTEM LOCK] Core/Media dependencies are protected from removal.${NC}"
-                        sleep 3 ;;
-                    6)
-                        echo -e "\n${WHITE}MODULE: python3-blessed${NC}"
-                        echo -e "Impact: Terminal games using Blessed will fail to render."
-                        echo -e "${GREEN}[STATUS] Safe to remove. OS unaffected.${NC}"
-                        
-                        read -p " Proceed with uninstall? (Y/N): " conf1
-                        if [[ "${conf1,,}" == "y" ]]; then
-                            echo -e "${RED}Executing purge...${NC}"
-                            sudo apt-get remove --purge -y python3-blessed
-                            sudo apt-get autoremove -y
-                            echo -e "${GREEN}Module purged.${NC}"
-                            sleep 2
-                        fi
-                        ;;
-                    q|Q) ;;
-                    *) echo -e "${RED}Invalid selection.${NC}"; sleep 1 ;;
-                esac
-                ;;
             q|Q) return ;;
-            *) echo -e "${RED}Invalid selection.${NC}"; sleep 1 ;;
         esac
     done
 }
@@ -259,19 +156,14 @@ installer_module() {
 # word@ FTF - UNIFIED FILE TO FLOPPY MODULE
 # ==========================================
 file_to_floppy_module() {
+    hypervisor_lock 3 "FTF Archiver"
+    
     if [ "$ACTIVE_TARGET" = "NONE" ] || [ ! -d "$ACTIVE_TARGET" ]; then
         echo -e "${RED}[ SYSTEM HALT: NO MEDIA MOUNTED. RUN '?scan' FIRST ]${NC}"
-        press_enter
-        return
+        hypervisor_release; press_enter; return
     fi
 
     CURRENT_ID=$(cat "$ACTIVE_TARGET/.disk_id" 2>/dev/null)
-    if [ -z "$CURRENT_ID" ]; then
-        echo -e "${RED}[ MEDIA UNINITIALIZED. RUN 'word@ init' FIRST ]${NC}"
-        press_enter
-        return
-    fi
-
     KNOWN_NAME=$(grep "ID: $CURRENT_ID" "$LEDGER_FILE" | awk -F'NAME: ' '{print $2}' | awk '{print $1}')
     [ -z "$KNOWN_NAME" ] && KNOWN_NAME="UNKNOWN"
 
@@ -279,15 +171,8 @@ file_to_floppy_module() {
     echo -e "${ORANGE}========================================${NC}"
     echo -e "${WHITE} FTF - FILE TO MEDIA ARCHIVE PROTOCOL${NC}"
     echo -e "${ORANGE} Target Disk: $KNOWN_NAME [$CURRENT_ID]${NC}"
-    echo -e "${ORANGE} Target Path: $ACTIVE_TARGET${NC}"
     echo -e "${ORANGE}========================================${NC}"
-    echo -e "  1) Text Archive   (Transfer .txt documents)"
-    echo -e "  2) Sound Archive  (Compress & transfer .mp3)"
-    echo -e "  3) Image Archive  (Transfer .jpg / .png images)"
-    echo -e "  4) Game Archive   (Transfer .py game cartridges)"
-    echo -e "  5) Video Archive  (Terminal-Optimized Encoding)"
-    echo -e "  q) Return to OS"
-    echo -e "${ORANGE}========================================${NC}"
+    echo -e "  1) Text Archive\n  2) Sound Archive\n  3) Image Archive\n  4) Game Archive\n  5) Video Archive\n  q) Return"
     read -p " Select media type: " ftf_choice
 
     FREE_SPACE_KB=$(df -k "$ACTIVE_TARGET" | awk 'NR==2 {print $4}')
@@ -301,8 +186,7 @@ file_to_floppy_module() {
 
             if [ ${#text_files[@]} -eq 0 ]; then
                 echo -e "${RED}No text files found in WordBank.${NC}"
-                press_enter
-                return
+                hypervisor_release; press_enter; return
             fi
 
             for FILE in "${text_files[@]}"; do
@@ -334,14 +218,12 @@ file_to_floppy_module() {
         2) # SOUND
             if ! command -v ffmpeg >/dev/null 2>&1; then
                 echo -e "${RED}ffmpeg is missing. Run 'word@ ?inst' to resolve.${NC}"
-                press_enter
-                return
+                hypervisor_release; press_enter; return
             fi
 
             if [ "$FREE_SPACE_KB" -lt 50 ]; then
                 echo -e "${RED}CRITICAL ERROR: Insufficient magnetic surface space for compression.${NC}"
-                press_enter
-                return
+                hypervisor_release; press_enter; return
             fi
 
             shopt -s nullglob
@@ -350,8 +232,7 @@ file_to_floppy_module() {
 
             if [ ${#audio_files[@]} -eq 0 ]; then
                 echo -e "${RED}No audio files found in WordBank.${NC}"
-                press_enter
-                return
+                hypervisor_release; press_enter; return
             fi
 
             i=1
@@ -364,18 +245,15 @@ file_to_floppy_module() {
             read -p "Select file number: " choice
             if ! [[ "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt "${#audio_files[@]}" ]; then
                 echo -e "${RED}Invalid selection.${NC}"
-                press_enter
-                return
+                hypervisor_release; press_enter; return
             fi
             
             SELECTED_FILE="${audio_files[$((choice-1))]}"
             BASENAME=$(basename "$SELECTED_FILE")
+            TMP_OUT="/tmp/${BASENAME}_$$"
 
             echo -e "\n${ORANGE}Select Compression Profile:${NC}"
-            echo -e "  1) Short    (32kbps - High Quality)"
-            echo -e "  2) Standard (16kbps - Balanced)"
-            echo -e "  3) Long     (8kbps  - Max Length)"
-            echo -e "  4) Auto     (Fit perfectly to disk)"
+            echo -e "  1) Short    (32kbps - High Quality)\n  2) Standard (16kbps - Balanced)\n  3) Long     (8kbps  - Max Length)\n  4) Auto     (Fit perfectly to disk)"
             read -p "Choice (1-4): " q_choice
 
             TARGET_BITRATE="16k" 
@@ -403,9 +281,9 @@ file_to_floppy_module() {
             esac
 
             echo -e "${WHITE}Compressing & Transferring...${NC}"
-            if ffmpeg -y -i "$SELECTED_FILE" -c:a libmp3lame -b:a "$TARGET_BITRATE" -ac 1 -ar 16000 "/tmp/$BASENAME" 2>/dev/null; then
-                sudo cp "/tmp/$BASENAME" "$ACTIVE_TARGET/$BASENAME"
-                rm "/tmp/$BASENAME"
+            if ffmpeg -y -i "$SELECTED_FILE" -c:a libmp3lame -b:a "$TARGET_BITRATE" -ac 1 -ar 16000 "$TMP_OUT" 2>/dev/null; then
+                sudo cp "$TMP_OUT" "$ACTIVE_TARGET/$BASENAME"
+                rm -f "$TMP_OUT"
                 echo -e "${GREEN}Audio secured on physical disk.${NC}"
                 read -p "Set track to Auto-Run on insert? (Y/N): " autorun_choice
                 if [[ "${autorun_choice,,}" == "y" ]]; then
@@ -425,8 +303,7 @@ file_to_floppy_module() {
 
             if [ ${#img_files[@]} -eq 0 ]; then
                 echo -e "${RED}No image files found in WordBank.${NC}"
-                press_enter
-                return
+                hypervisor_release; press_enter; return
             fi
 
             for FILE in "${img_files[@]}"; do
@@ -452,8 +329,7 @@ file_to_floppy_module() {
 
             if [ ${#game_files[@]} -eq 0 ]; then
                 echo -e "${RED}No games found in WordBank.${NC}"
-                press_enter
-                return
+                hypervisor_release; press_enter; return
             fi
 
             i=1
@@ -490,14 +366,12 @@ file_to_floppy_module() {
         5) # VIDEO
             if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
                 echo -e "${RED}ffmpeg is missing. Run 'word@ ?inst' to resolve.${NC}"
-                press_enter
-                return
+                hypervisor_release; press_enter; return
             fi
             
             if [ "$FREE_SPACE_KB" -lt 50 ]; then
                 echo -e "${RED}CRITICAL ERROR: Insufficient magnetic surface space for video compression.${NC}"
-                press_enter
-                return
+                hypervisor_release; press_enter; return
             fi
 
             shopt -s nullglob
@@ -506,8 +380,7 @@ file_to_floppy_module() {
 
             if [ ${#vid_files[@]} -eq 0 ]; then
                 echo -e "${RED}No video files found in WordBank.${NC}"
-                press_enter
-                return
+                hypervisor_release; press_enter; return
             fi
 
             echo -e "\n${ORANGE}Select Video Compression Protocol:${NC}"
@@ -530,8 +403,7 @@ file_to_floppy_module() {
                 done
                 if [ ${#valid_vids[@]} -eq 0 ]; then
                     echo -e "${RED}FAILURE: No videos in the WordBank are short enough to physically fit on this disk.${NC}"
-                    press_enter
-                    return
+                    hypervisor_release; press_enter; return
                 fi
             else
                 valid_vids=("${vid_files[@]}")
@@ -547,12 +419,12 @@ file_to_floppy_module() {
             read -p "Select video cartridge to archive: " choice
             if ! [[ "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt "${#valid_vids[@]}" ]; then
                 echo -e "${RED}Invalid selection.${NC}"
-                press_enter
-                return
+                hypervisor_release; press_enter; return
             fi
             
             SEL_VID="${valid_vids[$((choice-1))]}"
             BASENAME=$(basename "$SEL_VID")
+            TMP_OUT="/tmp/${BASENAME}_$$"
             
             DUR=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$SEL_VID" 2>/dev/null | awk '{print int($1)}')
             [ -z "$DUR" ] || [ "$DUR" -le 0 ] && DUR=1
@@ -561,24 +433,18 @@ file_to_floppy_module() {
             echo -e "${WHITE}Initializing hardware compression engine...${NC}"
             
             case "$v_choice" in
-                1) 
-                    ffmpeg -y -i "$SEL_VID" -vf scale=160:-2 -r 12 -b:v "$TARGET_BITRATE" -b:a 16k -ac 1 -ar 16000 "/tmp/$BASENAME" 2>/dev/null
-                    ;;
-                2) 
-                    ffmpeg -y -i "$SEL_VID" -vf scale=80:-2 -r 15 -b:v "$TARGET_BITRATE" -an "/tmp/$BASENAME" 2>/dev/null
-                    ;;
-                3) 
-                    ffmpeg -y -i "$SEL_VID" -vf scale=80:-2 -r 10 -b:v "$TARGET_BITRATE" -an "/tmp/$BASENAME" 2>/dev/null
-                    ;;
-                *) echo -e "${RED}Invalid profile.${NC}"; return ;;
+                1) ffmpeg -y -i "$SEL_VID" -vf scale=160:-2 -r 12 -b:v "$TARGET_BITRATE" -b:a 16k -ac 1 -ar 16000 "$TMP_OUT" 2>/dev/null ;;
+                2) ffmpeg -y -i "$SEL_VID" -vf scale=80:-2 -r 15 -b:v "$TARGET_BITRATE" -an "$TMP_OUT" 2>/dev/null ;;
+                3) ffmpeg -y -i "$SEL_VID" -vf scale=80:-2 -r 10 -b:v "$TARGET_BITRATE" -an "$TMP_OUT" 2>/dev/null ;;
+                *) echo -e "${RED}Invalid profile.${NC}"; hypervisor_release; return ;;
             esac
 
-            FINAL_SIZE=$(du -k "/tmp/$BASENAME" | cut -f1)
+            FINAL_SIZE=$(du -k "$TMP_OUT" | cut -f1)
             [ -z "$FINAL_SIZE" ] && FINAL_SIZE=1
 
             if [ "$FINAL_SIZE" -le "$FREE_SPACE_KB" ]; then
-                sudo cp "/tmp/$BASENAME" "$ACTIVE_TARGET/$BASENAME"
-                rm "/tmp/$BASENAME"
+                sudo cp "$TMP_OUT" "$ACTIVE_TARGET/$BASENAME"
+                rm -f "$TMP_OUT"
                 echo -e "${GREEN}Video cartridge '$BASENAME' secured on physical media.${NC}"
                 read -p "Set video to Auto-Run ASCII playback on insert? (Y/N): " autorun_choice
                 if [[ "${autorun_choice,,}" == "y" ]]; then
@@ -586,7 +452,7 @@ file_to_floppy_module() {
                     echo -e "${WHITE}Auto-Run protocol established.${NC}"
                 fi
             else
-                rm "/tmp/$BASENAME"
+                rm -f "$TMP_OUT"
                 echo -e "\n${RED}[ WARNING: THIS FILE DOES NOT FIT ]${NC}"
                 echo -e "${RED}$BASENAME${NC}"
                 echo -e "${ORANGE}Compression failed to breach the hardware limit.${NC}"
@@ -594,12 +460,12 @@ file_to_floppy_module() {
             press_enter
             ;;
 
-        q|Q) return ;;
+        q|Q) hypervisor_release; return ;;
         *) echo -e "${RED}Invalid selection.${NC}"; sleep 1 ;;
     esac
+    
+    hypervisor_release
 }
-
-
 # ==========================================
 # word@ ?calc - HYBRID PYTHON MATH ENGINE
 # ==========================================
@@ -610,102 +476,76 @@ execute_python_math() {
         echo -e "${ORANGE} STREAMING NILAKANTHA SERIES (Press CTRL+C to stop)${NC}"
         tput civis
         python3 -c "
-import sys, time
+import sys, time, signal
+
+paused = False
+def pause_handler(signum, frame):
+    global paused
+    paused = True
+    sys.stdout.write('\033[2J\033[H\033[38;5;208m[ SYSTEM OVERRIDE ]\033[0m\n\033[1;37mPlease wait, a higher priority program is currently utilizing the CPU...\033[0m\n')
+    sys.stdout.flush()
+
+def resume_handler(signum, frame):
+    global paused
+    paused = False
+    sys.stdout.write('\033[2J\033[H\033[1;37m Formula: Pi = 3 + 4/(2*3*4) - 4/(4*5*6)...\033[0m\n\n')
+
+signal.signal(signal.SIGUSR1, pause_handler)
+signal.signal(signal.SIGUSR2, resume_handler)
+
 pi_est = 3.0
 n = 2
 sign = 1
-print('\033[1;37m Formula: Pi = 3 + 4/(2*3*4) - 4/(4*5*6) + 4/(6*7*8)...\033[0m\n')
+sys.stdout.write('\033[1;37m Formula: Pi = 3 + 4/(2*3*4) - 4/(4*5*6) + 4/(6*7*8)...\033[0m\n\n')
 try:
     iteration = 1
     while True:
+        while paused:
+            time.sleep(1) # Consumes 0% CPU while frozen by hypervisor
+            
         term = 4.0 / (n * (n+1) * (n+2))
         if sign == 1: pi_est += term
         else: pi_est -= term
-        sys.stdout.write(f'\r \033[0;32m[Iter {iteration}]\033[0m Math: {\"+\" if sign==1 else \"-\"}{term:.8f} | Current Pi ≈ {pi_est:.14f}')
+        sys.stdout.write(f'\r \033[0;32m[Iter {iteration}]\033[0m Math: {\"+\" if sign==1 else \"-\"}{term:.8f} | Current Pi ≈ {pi_est:.14f}\033[K')
         sys.stdout.flush()
-        n += 2
-        sign *= -1
-        iteration += 1
+        n += 2; sign *= -1; iteration += 1
         time.sleep(0.05)
 except KeyboardInterrupt:
-    sys.stdout.write('\n\n\033[0;31m Calculation Halted.\033[0m\n')
     sys.exit(0)
 "
         tput cnorm
         echo -e "\n"
     else
         python3 -c "
-import sys, time
+import sys
 from math import *
-
-expr = sys.argv[1]
-
-s = expr.replace('{','(').replace('}',')').replace('[','(').replace(']',')').replace('x','*').replace('X','*').replace('^','**')
-s = s.replace(' ', '')
-
-print(f'\033[1;37m[Original]\033[0m {s}')
-
 try:
-    step = 1
-    while '(' in s:
-        start = s.rfind('(')
-        end = s.find(')', start)
-        if end == -1: raise ValueError('Unmatched bracket')
-        
-        func_start = start
-        while func_start > 0 and s[func_start-1].isalpha():
-            func_start -= 1
-            
-        chunk = s[func_start:end+1]
-        val = eval(chunk)
-        if isinstance(val, float) and val.is_integer(): val = int(val)
-        
-        s = s[:func_start] + str(val) + s[end+1:]
-        time.sleep(0.3)
-        print(f'\033[38;5;208m[Step {step}]\033[0m  {s}')
-        step += 1
-        
-    ans = eval(s)
-    if isinstance(ans, float) and ans.is_integer(): ans = int(ans)
-    time.sleep(0.3)
-    print(f'\033[0;32m[Final]\033[0m    {ans}\n')
-    
-except Exception as e:
-    print('\033[0;31m Invalid Syntax or Math Error\033[0m\n')
+    s = sys.argv[1].replace('{','(').replace('}',')').replace('[','(').replace(']',')').replace('x','*').replace('^','**')
+    print(f'\033[0;32m[Final]\033[0m    {eval(s)}\n')
+except:
+    print('\033[0;31m Invalid Syntax\033[0m\n')
 " "$math_input"
     fi
 }
 
 interactive_calculator() {
+    hypervisor_lock 1 "Math Engine"
     clear
     echo -e "${ORANGE}========================================${NC}"
-    echo -e "${WHITE} INTERACTIVE MATH ENGINE${NC}"
+    echo -e "${WHITE} INTERACTIVE MATH ENGINE (Priority: Low)${NC}"
     echo -e "${ORANGE}========================================${NC}"
-    echo -e " ${WHITE}[Operators]${NC} +, -, *, /, ** or ^ (Power), % (Modulo)"
-    echo -e " ${WHITE}[Brackets]${NC}  (), [], {} (Auto-translates to parens)"
-    echo -e " ${WHITE}[Functions]${NC} sqrt(x), factorial(x), abs(x), log(x)"
-    echo -e " ${WHITE}[Trig]     ${NC} sin(x), cos(x), tan(x), degrees(x)"
-    echo -e " ${WHITE}[Constants]${NC} pi, e, tau"
-    echo -e "${ORANGE}----------------------------------------${NC}"
-    echo -e " Type 'pi' to watch infinite series math live."
-    echo -e " Type 'q' or 'exit' to return to menu."
-    echo -e "${ORANGE}========================================${NC}"
-
     while true; do
         read -p " Math > " math_input
-        
-        if [[ "$math_input" == "q" || "$math_input" == "exit" || -z "$math_input" ]]; then
-            echo -e "${WHITE}Returning to menu...${NC}"
-            sleep 1; calculator_engine
-            return
+        if [[ "$math_input" == "q" || -z "$math_input" ]]; then
+            hypervisor_release; return
         fi
-        
         execute_python_math "$math_input"
     done
 }
 
 file_calculator() {
-    local tmp_math="$BANK_DIR/text/.calc_input.tmp"
+    hypervisor_lock 1 "Batch Math Engine"
+    local tmp_math="$BANK_DIR/text/.calc_input_$$.tmp"
     > "$tmp_math"
     
     if [ -n "$DISPLAY" ] && command -v xdg-open >/dev/null 2>&1; then
@@ -730,40 +570,29 @@ file_calculator() {
         echo -e "${ORANGE}----------------------------------------${NC}"
     done < "$tmp_math"
     
-    if [ "$has_content" -eq 0 ]; then
-        echo -e "${RED}File was empty. No math processed.${NC}"
-    fi
-    
+    if [ "$has_content" -eq 0 ]; then echo -e "${RED}File was empty. No math processed.${NC}"; fi
     rm -f "$tmp_math"
+    
+    hypervisor_release
     press_enter
-    calculator_engine
 }
 
 calculator_engine() {
-    if ! command -v python3 >/dev/null 2>&1; then
-        echo -e "${RED}Error: python3 is missing. Run 'word@ ?inst' to resolve.${NC}"
-        exit 1
-    fi
-
+    if ! command -v python3 >/dev/null 2>&1; then echo -e "${RED}Error: python3 is missing. Run 'word@ ?inst' to resolve.${NC}"; exit 1; fi
     clear
     echo -e "${ORANGE}========================================${NC}"
     echo -e "${WHITE} word@ MATH DASHBOARD${NC}"
     echo -e "${ORANGE}========================================${NC}"
-    echo -e " [1] from_file  (Paste/Write complex math in a .txt)"
-    echo -e " [2] calculator (Interactive terminal prompt)"
-    echo -e " [q] Return to Terminal"
-    echo -e "${ORANGE}========================================${NC}"
+    echo -e " [1] from_file  (Paste/Write complex math in a .txt)\n [2] calculator (Interactive terminal prompt)\n [q] Return"
     read -n 1 -p " Select mode: " calc_mode
     echo ""
-
     case $calc_mode in
         1) file_calculator ;;
         2) interactive_calculator ;;
-        q|Q) clear; exit 0 ;;
+        q|Q) exit 0 ;;
         *) echo "Invalid selection."; sleep 1; calculator_engine ;;
     esac
 }
-
 
 # ==========================================
 # THE SWITCHBOARD
@@ -771,6 +600,15 @@ calculator_engine() {
 case "$1" in
 
     "")
+        active_tasks=0
+        for task in "$TASK_DIR"/*; do
+            if [ -f "$task" ]; then
+                t_pid=$(basename "$task")
+                if kill -0 "$t_pid" 2>/dev/null; then active_tasks=$((active_tasks+1))
+                else rm -f "$task" 2>/dev/null; fi
+            fi
+        done
+
         echo -e "${ORANGE}========================================${NC}"
         echo -e "${WHITE} word@ SYSTEM DASHBOARD${NC}"
         echo -e "${ORANGE}========================================${NC}"
@@ -779,312 +617,34 @@ case "$1" in
         echo -e "  ?scan, ?flop, ?gath, ?when, view, del!"
         echo -e "  help!, ?work, ?calc, ?play, ?inst, update"
         echo -e "${ORANGE}========================================${NC}"
-
+        
+        echo -e "${WHITE}HYPERVISOR STATE:${NC}"
+        if [ "$active_tasks" -gt 0 ]; then
+            echo -e "  ${GREEN}[ONLINE]${NC} Tracking $active_tasks Background Process(es)"
+            for task in "$TASK_DIR"/*; do
+                if [ -f "$task" ]; then
+                    t_name=$(cut -d'|' -f2 "$task")
+                    t_pri=$(cut -d'|' -f1 "$task")
+                    echo -e "  -> PID: $(basename "$task") | PRIORITY: $t_pri | TASK: $t_name"
+                fi
+            done
+        else
+            echo -e "  ${WHITE}[IDLE]${NC} No background terminals detected."
+        fi
+        
         MISSING=0
         for pkg in ffmpeg mpg123 alsa-utils wodim qsstv imagemagick python3 python3-opencv v4l-utils; do
-            if ! is_pkg_installed "$pkg"; then
-                MISSING=1
-                break
-            fi
+            if ! is_pkg_installed "$pkg"; then MISSING=1; break; fi
         done
-
-        if [ "$MISSING" -eq 1 ]; then
-            echo -e "${RED}Notice: System is missing core dependencies. Run 'word@ ?inst' to manage packages.${NC}"
-        fi
+        if [ "$MISSING" -eq 1 ]; then echo -e "\n${RED}Notice: System is missing dependencies. Run 'word@ ?inst'.${NC}"; fi
         exit 0
-        ;;
-
-    "?well")
-        echo -e "${ORANGE}========================================${NC}"
-        echo -e "${WHITE}   Welcome to the Terminal Workspace    ${NC}"
-        echo -e "${ORANGE}========================================${NC}"
-        echo -e "${ORANGE}This is a distraction-free media environment."
-        echo -e "Everything you record is secured in a local bank"
-        echo -e "before being archived to physical media.${NC}\n"
-        
-        if [ "$ACTIVE_TARGET" != "NONE" ] && mountpoint -q "$ACTIVE_TARGET" 2>/dev/null; then
-            echo -e "  Hardware Status : ${WHITE}[$MEDIA_TYPE MEDIA MOUNTED AT $ACTIVE_TARGET]${NC}"
-        else
-            echo -e "  Hardware Status : ${RED}[NO DISK MOUNTED]${NC}"
-        fi
-        echo ""
-        
-        echo -e "${ORANGE}To see the available commands, type: ${WHITE}word@ help!${NC}"
-        echo -e "${ORANGE}========================================${NC}"
-        exit 0
-        ;;
-
-    "help!")
-        clear 
-        if [ "$2" == "tree" ]; then
-            echo -e "${WHITE}SYSTEM HIERARCHY:${NC}"
-            echo -e "${ORANGE}word@${NC}"
-            echo -e "├── help!"
-            echo -e "│   ├── tree (Visual structure)"
-            echo -e "│   └── desc (Detailed manual)"
-            echo -e "├── write [filename]"
-            echo -e "├── raw [filename]"
-            echo -e "├── ?rec"
-            echo -e "├── view [target.ext]"
-            echo -e "├── ?play (Game Console)"
-            echo -e "├── FTF (File To Floppy Archive Suite)"
-            echo -e "├── init (Initialization & Emulation Suite)"
-            echo -e "├── ?calc"
-            echo -e "├── ?inst (Package Manager & GitHub Fetcher)"
-            echo -e "├── ?scan"
-            echo -e "├── del!"
-            echo -e "├── ?flop / ?gath / ?when / ?work"
-            echo -e "└── update"
-            
-        elif [ "$2" == "desc" ]; then
-            echo -e "${WHITE}DETAILED COMMAND DESCRIPTIONS:${NC}"
-            echo -e "${ORANGE}write [filename]${NC} - Opens or creates a text file. Automatically routes to GUI or Nano."
-            echo -e "${ORANGE}raw [filename]${NC}   - Distraction-free terminal writing mode. Type //SAVE or //REJECT."
-            echo -e "${ORANGE}?rec${NC}             - Audio & Video field recorder. Compresses live input to MP3/MP4."
-            echo -e "${ORANGE}FTF${NC}              - File To Floppy. Unified archiver for text, compressed audio, images, video, and games."
-            echo -e "${ORANGE}view [target]${NC}    - Universal viewer. Streams text, plays MP3s, or renders Video to ASCII."
-            echo -e "${ORANGE}?play${NC}            - Game Console. Launches Python cartridges from bank or floppy."
-            echo -e "${ORANGE}?calc${NC}            - Floating-point math calculator powered by background Python."
-            echo -e "${ORANGE}?inst${NC}            - Package Manager. Installs dependencies or pulls code directly from GitHub."
-            echo -e "${ORANGE}?scan${NC}            - Hardware Interrogation. Hunts for USBs or Magnetic drives and sets active targets."
-            echo -e "${ORANGE}del!${NC}             - Burn protocols to safely erase files, banks, or virtual floppies."
-            echo -e "${ORANGE}init${NC}             - Interactive menu to Format media or Emulate a Virtual Floppy."
-            echo -e "${ORANGE}update${NC}           - Pulls the latest word@ script from GitHub."
-            
-        else
-            echo -e "${WHITE}QUICK REFERENCE:${NC}"
-            echo -e "  ${WHITE}write${NC}     - Open/create text (Nano/Desktop)"
-            echo -e "  ${WHITE}raw${NC}       - Write directly in terminal"
-            echo -e "  ${WHITE}?rec${NC}      - Record Audio or Video"
-            echo -e "  ${WHITE}FTF${NC}       - File to Media (Text/Sound/Image/Game/Video)"
-            echo -e "  ${WHITE}view${NC}      - Play MP3, stream text, or render Video"
-            echo -e "  ${WHITE}?play${NC}     - Launch Python terminal games"
-            echo -e "  ${WHITE}?calc${NC}     - Python-powered Math Engine"
-            echo -e "  ${WHITE}?inst${NC}     - Package Manager & GitHub Fetcher"
-            echo -e "  ${WHITE}?scan${NC}     - Hunt for Hardware (MUST RUN FIRST)"
-            echo -e "  ${WHITE}del!${NC}      - Erase (File, Bank, Floppy, Virtual, Reset)"
-            echo -e "  ${WHITE}init${NC}      - Open the Format & Emulation Suite"
-            echo -e "  ${WHITE}?flop${NC}     - Floppy drive hardware status"
-            echo -e "  ${WHITE}?gath${NC}     - WordBank file sizes/weights"
-            echo -e "  ${WHITE}?when${NC}     - Global file timestamps"
-            echo -e "  ${WHITE}?work${NC}     - Health & network diagnostic check"
-            echo -e "  ${WHITE}update${NC}    - Pull latest version from GitHub"
-            echo -e "  ${WHITE}help!${NC}     - Options: 'help! tree' or 'help! desc'"
-        fi
-        exit 0
-        ;;
-
-    "?inst")
-        installer_module
-        exit 0
-        ;;
-
-    "FTF")
-        file_to_floppy_module
-        exit 0
-        ;;
-
-    "write")
-        if [ -n "$2" ]; then
-            filename="$2"
-        else
-            read -p "Enter document name: " filename
-        fi
-        filepath="$BANK_DIR/text/$filename.txt"
-        touch "$filepath"
-        
-        if [ -n "$DISPLAY" ] && command -v xdg-open >/dev/null 2>&1; then
-            xdg-open "$filepath" 2>/dev/null || nano "$filepath"
-        else
-            nano "$filepath"
-        fi
-        exit 0
-        ;;
-
-    "raw")
-        if [ -n "$2" ]; then
-            filename="$2"
-        else
-            read -p "Enter document name: " filename
-        fi
-        
-        TEMP_FILE="$BANK_DIR/text/.$filename.tmp"
-        FINAL_FILE="$BANK_DIR/text/$filename.txt"
-        
-        echo -e "${ORANGE}========================================${NC}"
-        echo -e "${WHITE} RAW WRITING MODE ENGAGED${NC}"
-        echo -e "${ORANGE} Type //SAVE on a new line to keep your work."
-        echo -e " Type //REJECT on a new line to burn it.${NC}"
-        echo -e "${ORANGE}========================================${NC}"
-        > "$TEMP_FILE"
-        
-        while IFS= read -r line; do
-            if [[ "$line" == "//SAVE" ]]; then
-                mv "$TEMP_FILE" "$FINAL_FILE"
-                echo -e "${WHITE}Draft secured in Bank as $filename.txt${NC}"
-                exit 0
-            elif [[ "$line" == "//REJECT" ]]; then
-                rm -f "$TEMP_FILE"
-                echo -e "${RED}Draft rejected. Burned to ash.${NC}"
-                exit 0
-            else
-                echo "$line" >> "$TEMP_FILE"
-            fi
-        done
-        ;;
-
-    "?rec")
-        if ! command -v ffmpeg >/dev/null 2>&1; then
-            echo -e "${RED}FFmpeg is missing. Run 'word@ ?inst' to resolve.${NC}"
-            exit 1
-        fi
-        
-        echo -e "${ORANGE}========================================${NC}"
-        echo -e "${WHITE} WORD@ FIELD RECORDER${NC}"
-        echo -e "${ORANGE}========================================${NC}"
-        echo -e "  1) Audio Tape (Microphone)"
-        echo -e "  2) Video Camcorder (Onboard Camera)"
-        echo -e "${ORANGE}========================================${NC}"
-        read -p " Select mode: " rec_mode
-        
-        read -p " Enter a name for this recording: " rec_name
-        
-        if [ "$rec_mode" == "1" ]; then
-            if ! command -v arecord >/dev/null 2>&1; then
-                echo -e "${RED}arecord tool missing.${NC}"; exit 1
-            fi
-            echo -e "\n${WHITE}[ LIVE AUDIO RECORDING - Press ENTER to stop ]${NC}"
-            TEMP_WAV="$BANK_DIR/audio/.$rec_name.tmp.wav"
-            FINAL_MP3="$BANK_DIR/audio/$rec_name.mp3"
-            
-            arecord -f cd "$TEMP_WAV" -q &
-            RECORD_PID=$!
-            read -r
-            kill $RECORD_PID 2>/dev/null
-            
-            echo -e "${WHITE}Processing audio...${NC}"
-            if ffmpeg -y -i "$TEMP_WAV" -qscale:a 2 "$FINAL_MP3" 2>/dev/null; then
-                rm -f "$TEMP_WAV"
-                echo -e "${GREEN}Recording saved to WordBank as $rec_name.mp3${NC}"
-            else
-                echo -e "${RED}Error: Audio processing failed.${NC}"
-            fi
-            
-        elif [ "$rec_mode" == "2" ]; then
-            if [ ! -c /dev/video0 ]; then
-                echo -e "${RED}No camera detected at /dev/video0.${NC}"
-                exit 1
-            fi
-            echo -e "\n${WHITE}[ LIVE VIDEO CAMCORDER - Press ENTER to stop ]${NC}"
-            FINAL_MP4="$BANK_DIR/video/$rec_name.mp4"
-            
-            ffmpeg -y -f v4l2 -i /dev/video0 -c:v libx264 -preset ultrafast -crf 28 "$FINAL_MP4" >/dev/null 2>&1 < /dev/null &
-            RECORD_PID=$!
-            
-            read -r
-            kill -INT $RECORD_PID 2>/dev/null
-            sleep 1 
-            
-            echo -e "${GREEN}Video log saved to WordBank as $rec_name.mp4${NC}"
-        else
-            echo -e "${RED}Invalid selection.${NC}"
-        fi
-        exit 0
-        ;;
-
-    "init")
-        clear
-        echo -e "${ORANGE}========================================${NC}"
-        echo -e "${WHITE} INITIALIZATION & EMULATION SUITE${NC}"
-        echo -e "${ORANGE} Target Path: $ACTIVE_TARGET${NC}"
-        echo -e "${ORANGE}========================================${NC}"
-        echo -e "  1) Initialize Hardware  (Stamp and format mounted media)"
-        echo -e "  2) Emulate Virtual Disk (Override USB safety locks)"
-        echo -e "  q) Return to OS"
-        echo -e "${ORANGE}========================================${NC}"
-        read -p " Select protocol: " init_choice
-
-        case "$init_choice" in
-            1)
-                if [ "$ACTIVE_TARGET" = "NONE" ] || [ ! -d "$ACTIVE_TARGET" ]; then
-                    echo -e "${RED}[ FATAL ERROR: NO HARDWARE MOUNTED. RUN ?scan FIRST. ]${NC}"
-                    exit 1
-                fi
-                
-                echo -e "\n${ORANGE}========================================${NC}"
-                echo -e "${WHITE}   INITIALIZING HARDWARE AT $ACTIVE_TARGET${NC}"
-                echo -e "${ORANGE}========================================${NC}"
-                
-                NEW_ID=$(tr -dc A-Z0-9 </dev/urandom | head -c 6)
-                WORD1=${NATO[$RANDOM % 26]}
-                if grep -q "NAME: $WORD1" "$LEDGER_FILE"; then
-                    WORD2=${NATO[$RANDOM % 26]}
-                    DISK_NAME="$WORD1-$WORD2"
-                else
-                    DISK_NAME="$WORD1"
-                fi
-                
-                echo "$NEW_ID" | sudo tee "$ACTIVE_TARGET/.disk_id" > /dev/null
-                echo -e "${WHITE}Hardware Stamped. Assigned Name: $DISK_NAME${NC}"
-                
-                echo -e "${ORANGE}Running deep magnetic scan...${NC}"
-                DEVICE=$(df "$ACTIVE_TARGET" | tail -1 | awk '{print $1}')
-                
-                if [[ "$DEVICE" == *loop* ]] || [ ! -b "$DEVICE" ]; then
-                    BAD_COUNT=0
-                    echo -e "${GREEN}Virtual Environment detected. Surface integrity is artificially 100%.${NC}"
-                else
-                    if ! BAD_OUTPUT=$(sudo badblocks "$DEVICE" 2>/dev/null); then
-                        echo -e "${RED}CRITICAL ERROR: Magnetic scan failed. The hardware may be locked or unresponsive.${NC}"
-                        echo -e "${RED}Initialization aborted.${NC}"
-                        press_enter
-                        exit 1
-                    fi
-                    
-                    if [ -z "$BAD_OUTPUT" ]; then
-                        BAD_COUNT=0
-                        echo -e "${GREEN}Scan complete. Surface integrity is 100%.${NC}"
-                    else
-                        BAD_COUNT=$(echo "$BAD_OUTPUT" | wc -l)
-                        echo -e "${RED}WARNING: $BAD_COUNT dead sectors detected.${NC}"
-                    fi
-                fi
-                
-                echo "ID: $NEW_ID | NAME: $DISK_NAME | BAD_BLOCKS: $BAD_COUNT" >> "$LEDGER_FILE"
-                echo -e "${GREEN}Media successfully integrated into the ecosystem.${NC}"
-                press_enter
-                ;;
-            2)
-                if [ "$MEDIA_TYPE" = "SOLID_STATE" ]; then
-                    echo -e "\n${WHITE}[ OVERRIDING USB ARCHITECTURE ]${NC}"
-                    echo -e "${GREEN}[ VIRTUAL FLOPPY ENVIRONMENT ESTABLISHED AT $ACTIVE_TARGET ]${NC}"
-                else
-                    echo -e "\n${RED}[ ERROR: NO USB DETECTED FOR EMULATION. RUN ?scan FIRST. ]${NC}"
-                fi
-                press_enter
-                ;;
-            q|Q) 
-                ;;
-            *)
-                echo -e "${RED}Invalid selection.${NC}"
-                sleep 1
-                ;;
-        esac
-        exit 0
-        ;;
-
-    "?calc")
-        calculator_engine
         ;;
 
     "?play")
-        if ! command -v python3 >/dev/null 2>&1; then
-            echo -e "${RED}Error: python3 is missing. Run 'word@ ?inst' to resolve.${NC}"
-            exit 1
-        fi
-
+        hypervisor_lock 4 "Game Engine"
+        
         echo -e "${ORANGE}========================================${NC}"
-        echo -e "${WHITE} word@ GAME CONSOLE${NC}"
+        echo -e "${WHITE} word@ GAME CONSOLE (Priority: MAX)${NC}"
         echo -e "${ORANGE}========================================${NC}"
         
         shopt -s nullglob
@@ -1093,11 +653,7 @@ case "$1" in
         shopt -u nullglob
         
         all_games=("${bank_games[@]}" "${floppy_games[@]}")
-        
-        if [ ${#all_games[@]} -eq 0 ]; then
-            echo -e "${RED}No games found in Local Bank or mounted media.${NC}"
-            exit 1
-        fi
+        if [ ${#all_games[@]} -eq 0 ]; then echo -e "${RED}No games found.${NC}"; hypervisor_release; exit 1; fi
         
         i=1
         for g in "${all_games[@]}"; do
@@ -1108,300 +664,215 @@ case "$1" in
             ((i++))
         done
         
-        echo -e "${ORANGE}----------------------------------------${NC}"
-        read -p " Select game to boot (or 'q' to quit): " choice
-        
-        if [[ "$choice" == "q" || "$choice" == "Q" ]]; then
-            echo -e "${WHITE}Exiting console...${NC}"
-            exit 0
-        fi
-        
-        if ! [[ "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt "${#all_games[@]}" ]; then
-            echo -e "${RED}Invalid selection.${NC}"
-            exit 1
-        fi
-        
+        read -p " Select game: " choice
         SELECTED_GAME="${all_games[$((choice-1))]}"
         
         clear
         GAME_DIR=$(dirname "$SELECTED_GAME")
         GAME_FILE=$(basename "$SELECTED_GAME")
-        (cd "$GAME_DIR" && python3 "$GAME_FILE")
+        
+        (cd "$GAME_DIR" && nice -n -10 python3 "$GAME_FILE")
+        
+        stty sane
+        tput cnorm
+        hypervisor_release
         
         clear
-        echo -e "${ORANGE}========================================${NC}"
-        echo -e "${WHITE} Game session ended. OS control restored.${NC}"
-        echo -e "${ORANGE}========================================${NC}"
-        exit 0
-        ;;
-
-    "?scan")
-        echo -e "${ORANGE}========================================${NC}"
-        echo -e "${WHITE} HARDWARE INTERROGATION PROTOCOL${NC}"
-        echo -e "${ORANGE}========================================${NC}"
-        
-        if lsblk | grep -q "fd0"; then
-            echo "ACTIVE_TARGET=/mnt/floppy" > "$STATE_FILE"
-            echo "MEDIA_TYPE=MAGNETIC" >> "$STATE_FILE"
-            echo -e "${WHITE}[ STATUS: MAGNETIC MEDIA DRIVE DETECTED AT /mnt/floppy ]${NC}"
-            echo -e "${GREEN}[ SYSTEM ALIGNMENT: READY ]${NC}"
-            
-        elif lsblk -nr -o NAME,TRAN | grep -q "usb"; then
-            USB_PART=$(lsblk -nr -o NAME,TRAN | awk '$2=="usb" {print $1}' | grep '[0-9]' | head -n 1)
-            
-            EXISTING_MOUNT=$(lsblk -nr -o MOUNTPOINT "/dev/$USB_PART" 2>/dev/null | grep -v "^$" | head -n 1)
-            
-            if [ -n "$EXISTING_MOUNT" ]; then
-                ACTIVE_TARGET="$EXISTING_MOUNT"
-            else
-                ACTIVE_TARGET="/mnt/word_usb"
-                sudo mkdir -p "$ACTIVE_TARGET"
-                if ! grep -qs "$ACTIVE_TARGET" /proc/mounts; then
-                    sudo mount "/dev/$USB_PART" "$ACTIVE_TARGET" 2>/dev/null
-                fi
-            fi
-            
-            echo "ACTIVE_TARGET=$ACTIVE_TARGET" > "$STATE_FILE"
-            echo "MEDIA_TYPE=SOLID_STATE" >> "$STATE_FILE"
-            echo -e "${WHITE}[ STATUS: USB MASS STORAGE DETECTED AT $ACTIVE_TARGET ]${NC}"
-            echo -e "${GREEN}[ SYSTEM ALIGNMENT: READY ]${NC}"
-            
-        else
-            echo "ACTIVE_TARGET=NONE" > "$STATE_FILE"
-            echo "MEDIA_TYPE=NONE" >> "$STATE_FILE"
-            echo -e "${RED}[ ERROR: NO HARDWARE MEDIA DETECTED. ]${NC}"
-        fi
-        
-        echo -e "\n${ORANGE}========================================${NC}"
-        echo -e "${WHITE} DIAGNOSTIC TOOLS${NC}"
-        echo -e "${ORANGE}========================================${NC}"
-        echo -e "  ${WHITE}1)${NC} Surface Scan (Check magnetic integrity)"
-        echo -e "  ${WHITE}2)${NC} Local Hunt   (Search Pi and move to Bank)"
-        echo -e "  ${WHITE}3)${NC} Ledger Scan  (Find a file's physical disk)"
-        echo -e "  ${WHITE}4)${NC} Auto-Execute (Trigger .autorun or script)"
-        echo -e "  ${WHITE}5)${NC} Boot Virtual Floppy Emulator (.img file)"
-        echo -e "  ${WHITE}q)${NC} Quit to OS"
-        echo -e "${ORANGE}========================================${NC}"
-        read -p "Select tool: " scan_choice
-
-        case "$scan_choice" in
-            1)
-                if [ "$ACTIVE_TARGET" != "NONE" ] && mountpoint -q "$ACTIVE_TARGET" 2>/dev/null; then
-                    DEVICE=$(df "$ACTIVE_TARGET" | tail -1 | awk '{print $1}')
-                    if [[ "$DEVICE" == *loop* ]] || [ ! -b "$DEVICE" ]; then
-                        echo -e "${ORANGE}Listening for dead sectors... wait, can you hear it step? Yeah, me neither.${NC}"
-                        echo -e "${GREEN}Virtual Floppy Image detected. Magnetic integrity is artificially 100%.${NC}"
-                    else
-                        echo -e "${ORANGE}Listening for dead sectors on $DEVICE...${NC}"
-                        if ! sudo badblocks -v "$DEVICE"; then
-                            echo -e "${RED}ERROR: Magnetic scan failed to access the device. Hardware may be locked.${NC}"
-                        fi
-                    fi
-                else
-                    echo -e "${RED}No media target mounted.${NC}"
-                fi
-                ;;
-            2)
-                read -p "Enter exact filename to hunt: " hunt_target
-                echo -e "${ORANGE}Sweeping local system...${NC}"
-                FOUND_PATH=$(find "$HOME" -type f -name "$hunt_target" 2>/dev/null | head -n 1)
-                
-                if [ -n "$FOUND_PATH" ]; then
-                    echo -e "${WHITE}Target acquired at: $FOUND_PATH${NC}"
-                    read -p "Import to WordBank? (Y/N): " import_choice
-                    if [[ "${import_choice,,}" == "y" ]]; then
-                        cp "$FOUND_PATH" "$BANK_DIR/"
-                    fi
-                else
-                    echo -e "${RED}File not found on local system.${NC}"
-                fi
-                ;;
-            3)
-                read -p "Enter document name to locate: " doc_target
-                if grep -q "FILE: $doc_target" "$LEDGER_FILE"; then
-                    grep "FILE: $doc_target" "$LEDGER_FILE"
-                else
-                    echo -e "${RED}Document not found in physical archives.${NC}"
-                fi
-                ;;
-            4)
-                if [ "$ACTIVE_TARGET" != "NONE" ] && [ -d "$ACTIVE_TARGET" ]; then
-                    if [ -f "$ACTIVE_TARGET/.autorun" ]; then
-                        AUTORUN_FILE=$(cat "$ACTIVE_TARGET/.autorun")
-                        if [ -f "$ACTIVE_TARGET/$AUTORUN_FILE" ]; then
-                            echo -e "${WHITE}Auto-Run triggered: $AUTORUN_FILE${NC}"
-                            if [[ "$AUTORUN_FILE" == *.py ]]; then
-                                GAME_DIR=$(dirname "$ACTIVE_TARGET/$AUTORUN_FILE")
-                                GAME_FILE=$(basename "$ACTIVE_TARGET/$AUTORUN_FILE")
-                                (cd "$GAME_DIR" && python3 "$GAME_FILE")
-                            elif [[ "$AUTORUN_FILE" == *.mp3 ]]; then
-                                mpg123 -q "$ACTIVE_TARGET/$AUTORUN_FILE" 2>/dev/null
-                            elif [[ "$AUTORUN_FILE" == *.mp4 ]]; then
-                                bash "$0" view "$AUTORUN_FILE"
-                            elif [[ "$AUTORUN_FILE" == *.sh ]]; then
-                                bash "$ACTIVE_TARGET/$AUTORUN_FILE"
-                            fi
-                            exit 0
-                        fi
-                    fi
-                    
-                    SCRIPT_FILE=$(ls -1 "$ACTIVE_TARGET"/*.sh 2>/dev/null | head -n 1)
-                    if [ -n "$SCRIPT_FILE" ]; then
-                        echo -e "${WHITE}Executing $SCRIPT_FILE...${NC}"
-                        bash "$SCRIPT_FILE"
-                    else
-                        echo -e "${RED}No auto-run media or scripts found on target.${NC}"
-                    fi
-                fi
-                ;;
-            5)
-                echo -e "${ORANGE}========================================${NC}"
-                echo -e "${WHITE} VIRTUAL FLOPPY EMULATOR${NC}"
-                echo -e "${ORANGE}========================================${NC}"
-                sudo mkdir -p "/mnt/floppy" 2>/dev/null
-                if mountpoint -q "/mnt/floppy" 2>/dev/null; then
-                    echo -e "${RED}A disk or image is already mounted at /mnt/floppy.${NC}"
-                    echo -e "${WHITE}Use 'del! -> 5' to unmount and destroy it first.${NC}"
-                else
-                    echo -e "${WHITE}Generating 1.44MB Virtual Disk...${NC}"
-                    dd if=/dev/zero of="$VIRTUAL_IMG" bs=1024 count=1440 status=none
-                    echo -e "${WHITE}Formatting as FAT12 (Standard Floppy)...${NC}"
-                    if ! command -v mkfs.fat >/dev/null 2>&1; then
-                        sudo apt-get install -y dosfstools >/dev/null 2>&1
-                    fi
-                    mkfs.fat -F 12 "$VIRTUAL_IMG" >/dev/null 2>&1
-                    echo -e "${WHITE}Mounting to /mnt/floppy...${NC}"
-                    sudo mount -o loop "$VIRTUAL_IMG" "/mnt/floppy"
-                    
-                    echo "ACTIVE_TARGET=/mnt/floppy" > "$STATE_FILE"
-                    echo "MEDIA_TYPE=VIRTUAL_MAGNETIC" >> "$STATE_FILE"
-                    
-                    echo -e "${GREEN}Virtual Emulator Online. System sees it as physical hardware.${NC}"
-                    echo -e "${ORANGE}Don't forget to run 'word@ init' and select 'Initialize Hardware' to stamp it!${NC}"
-                fi
-                press_enter
-                ;;
-            q|Q) ;;
-        esac
+        echo -e "${WHITE}Game session ended. OS control restored.${NC}"
         exit 0
         ;;
 
     "view")
-        read -p "Enter target file to view (include extension .txt, .mp3, .mp4): " target
+        hypervisor_lock 3 "Media Viewer"
         
-        FILE_PATH=""
-        FILE_TYPE=""
-        
-        if [ -f "$BANK_DIR/text/$target" ]; then
-            FILE_PATH="$BANK_DIR/text/$target"
-            FILE_TYPE="text"
-        elif [ "$ACTIVE_TARGET" != "NONE" ] && [ -f "$ACTIVE_TARGET/$target" ] && [[ "$target" == *.txt ]]; then
-            FILE_PATH="$ACTIVE_TARGET/$target"
-            FILE_TYPE="text"
-        elif [ -f "$BANK_DIR/audio/$target" ]; then
-            FILE_PATH="$BANK_DIR/audio/$target"
-            FILE_TYPE="audio"
-        elif [ "$ACTIVE_TARGET" != "NONE" ] && [ -f "$ACTIVE_TARGET/$target" ] && [[ "$target" == *.mp3 ]]; then
-            FILE_PATH="$ACTIVE_TARGET/$target"
-            FILE_TYPE="audio"
-        elif [ -f "$BANK_DIR/video/$target" ]; then
-            FILE_PATH="$BANK_DIR/video/$target"
-            FILE_TYPE="video"
-        elif [ "$ACTIVE_TARGET" != "NONE" ] && [ -f "$ACTIVE_TARGET/$target" ] && [[ "$target" == *.mp4 ]]; then
-            FILE_PATH="$ACTIVE_TARGET/$target"
-            FILE_TYPE="video"
-        fi
-        
-        if [ -z "$FILE_PATH" ]; then
-            echo -e "${RED}Target '$target' not found in WordBank or Mounted Media.${NC}"
-            exit 1
+        if ! command -v ffmpeg >/dev/null 2>&1; then
+            echo -e "${RED}ffmpeg missing. Run 'word@ ?inst'.${NC}"
+            hypervisor_release; exit 1
         fi
 
+        if [ -z "$2" ]; then
+            echo -e "${WHITE}Executing Pre-Flight Media Unification...${NC}"
+            for dir in "$BANK_DIR/video" "$ACTIVE_TARGET"; do
+                if [ "$dir" != "NONE" ] && [ -d "$dir" ]; then
+                    for ext in webm mkv avi; do
+                        shopt -s nullglob
+                        for f in "$dir"/*."$ext"; do
+                            echo -e " ${ORANGE}Auto-converting $(basename "$f") to MP4...${NC}"
+                            ffmpeg -y -i "$f" -c copy "${f%.*}.mp4" >/dev/null 2>&1 && rm -f "$f"
+                        done
+                        shopt -u nullglob
+                    done
+                fi
+            done
+            
+            clear
+            echo -e "${ORANGE}========================================${NC}"
+            echo -e "${WHITE} WORD@ UNIVERSAL VIEWER${NC}"
+            echo -e "${ORANGE}========================================${NC}"
+            
+            shopt -s nullglob
+            media_files=("$BANK_DIR"/text/*.txt "$BANK_DIR"/audio/*.mp3 "$BANK_DIR"/video/*.mp4)
+            [ "$ACTIVE_TARGET" != "NONE" ] && [ -d "$ACTIVE_TARGET" ] && media_files+=("$ACTIVE_TARGET"/*.txt "$ACTIVE_TARGET"/*.mp3 "$ACTIVE_TARGET"/*.mp4)
+            shopt -u nullglob
+
+            if [ ${#media_files[@]} -eq 0 ]; then echo -e "${RED}No media found.${NC}"; hypervisor_release; exit 1; fi
+
+            i=1
+            for m in "${media_files[@]}"; do
+                loc="Bank"
+                [[ "$m" == "$ACTIVE_TARGET"* ]] && loc="Hardware"
+                echo -e "  ${WHITE}$i)${NC} $(basename "$m") ${ORANGE}[$loc]${NC}"
+                ((i++))
+            done
+            read -p "Select file to view (or 'q' to quit): " m_choice
+            
+            if [[ "$m_choice" == "q" || "$m_choice" == "Q" ]]; then hypervisor_release; exit 0; fi
+            FILE_PATH="${media_files[$((m_choice-1))]}"
+            target=$(basename "$FILE_PATH")
+        else
+            target="$2"
+            FILE_PATH=""
+            if [ -f "$BANK_DIR/text/$target" ]; then FILE_PATH="$BANK_DIR/text/$target"
+            elif [ "$ACTIVE_TARGET" != "NONE" ] && [ -f "$ACTIVE_TARGET/$target" ] && [[ "$target" == *.txt ]]; then FILE_PATH="$ACTIVE_TARGET/$target"
+            elif [ -f "$BANK_DIR/audio/$target" ]; then FILE_PATH="$BANK_DIR/audio/$target"
+            elif [ "$ACTIVE_TARGET" != "NONE" ] && [ -f "$ACTIVE_TARGET/$target" ] && [[ "$target" == *.mp3 ]]; then FILE_PATH="$ACTIVE_TARGET/$target"
+            elif [ -f "$BANK_DIR/video/$target" ]; then FILE_PATH="$BANK_DIR/video/$target"
+            elif [ "$ACTIVE_TARGET" != "NONE" ] && [ -f "$ACTIVE_TARGET/$target" ] && [[ "$target" == *.mp4 ]]; then FILE_PATH="$ACTIVE_TARGET/$target"
+            fi
+            if [ -z "$FILE_PATH" ]; then echo -e "${RED}Target '$target' not found.${NC}"; hypervisor_release; exit 1; fi
+        fi
+
+        FILE_TYPE=""
+        [[ "$FILE_PATH" == *.txt ]] && FILE_TYPE="text"
+        [[ "$FILE_PATH" == *.mp3 ]] && FILE_TYPE="audio"
+        [[ "$FILE_PATH" == *.mp4 ]] && FILE_TYPE="video"
+        
         if [ "$FILE_TYPE" == "text" ]; then
             echo -e "${ORANGE}========================================${NC}"
             echo -e "${WHITE} STREAMING DATA: $target${NC}"
             echo -e "${ORANGE}========================================${NC}"
             echo -e "${WHITE}"
-            
             while IFS= read -r line || [ -n "$line" ]; do
-                for (( i=0; i<${#line}; i++ )); do
-                    echo -n "${line:$i:1}"
-                    sleep 0.02
-                done
+                for (( i=0; i<${#line}; i++ )); do echo -n "${line:$i:1}"; sleep 0.02; done
                 echo ""
             done < "$FILE_PATH"
             echo -e "${NC}"
             
         elif [ "$FILE_TYPE" == "audio" ]; then
-            if ! command -v mpg123 >/dev/null 2>&1; then
-                echo -e "${RED}mpg123 is missing. Run 'word@ ?inst' to resolve.${NC}"
-                exit 1
-            fi
+            if ! command -v mpg123 >/dev/null 2>&1; then echo -e "${RED}mpg123 missing.${NC}"; hypervisor_release; exit 1; fi
             echo -e "${ORANGE}========================================${NC}"
             echo -e "${WHITE} PLAYING AUDIO: $target${NC}"
             echo -e "${ORANGE}========================================${NC}"
             mpg123 -q "$FILE_PATH" 2>/dev/null
 
         elif [ "$FILE_TYPE" == "video" ]; then
-            if ! command -v python3 >/dev/null 2>&1; then
-                echo -e "${RED}python3 missing.${NC}"
-                exit 1
-            fi
-            
-            BASENAME="${target%.*}"
-            SUB_PATH="$BANK_DIR/text/$BASENAME.txt"
-            if [ ! -f "$SUB_PATH" ] && [ "$ACTIVE_TARGET" != "NONE" ] && [ -f "$ACTIVE_TARGET/$BASENAME.txt" ]; then
-                SUB_PATH="$ACTIVE_TARGET/$BASENAME.txt"
-            fi
-            
             echo -e "${ORANGE}========================================${NC}"
-            echo -e "${WHITE} INITIALIZING VIDEO-TO-ASCII ENGINE${NC}"
+            echo -e "${WHITE} VIDEO RENDERING ENGINE (Priority: High)${NC}"
             echo -e "${ORANGE}========================================${NC}"
-            read -p " Playback Mode [1] Pure White [2] Phosphor Green [3] True Color: " color_mode
+            echo -e "  1) Standard Video (GUI Player)\n  2) ASCII Render   (Terminal Player)\n  q) Quit"
+            read -p " Select Mode: " vid_mode
             
-            echo -e "\n${ORANGE}Select Resolution Scale:${NC}"
-            echo -e "  1) Standard (80-col  - Fast & Stable)"
-            echo -e "  2) High     (120-col - Crisp & Tighter Color)"
-            echo -e "  ${RED}3) MAX      (Uncapped Terminal Width - WARNING: May cause severe lag)${NC}"
-            read -p " Choice (1-3): " res_mode
-            if [[ "$res_mode" != "1" && "$res_mode" != "2" && "$res_mode" != "3" ]]; then res_mode="1"; fi
-            
-            echo ""
-            read -p " Audio Sync [1] Muted [2] 8-Bit Retro Crunch [3] 16-Bit Sampled: " audio_mode
-            
-            # PRE-PURGE TO PREVENT GHOST AUDIO
-            rm -f "/tmp/word_audio.wav" 2>/dev/null
-            
-            AUDIO_PID=""
-            if [ "$audio_mode" == "2" ]; then
-                echo -e "${WHITE}Extracting 8-bit audio track to RAM...${NC}"
-                ffmpeg -y -i "$FILE_PATH" -ar 8000 -ac 1 -c:a pcm_u8 "/tmp/word_audio.wav" >/dev/null 2>&1
-                if [ -f "/tmp/word_audio.wav" ]; then
-                    aplay -q "/tmp/word_audio.wav" 2>/dev/null &
-                    AUDIO_PID=$!
+            if [[ "$vid_mode" == "1" ]]; then
+                if ! command -v ffplay >/dev/null 2>&1 && ! command -v mpv >/dev/null 2>&1; then
+                    echo -e "${RED}No standard player installed.${NC}"; hypervisor_release; exit 1
                 fi
-            elif [ "$audio_mode" == "3" ]; then
-                echo -e "${WHITE}Extracting 16-bit audio track to RAM...${NC}"
-                ffmpeg -y -i "$FILE_PATH" -ar 16000 -ac 1 -c:a pcm_s16le "/tmp/word_audio.wav" >/dev/null 2>&1
-                if [ -f "/tmp/word_audio.wav" ]; then
-                    aplay -q "/tmp/word_audio.wav" 2>/dev/null &
-                    AUDIO_PID=$!
+                
+                NAT_W=$(ffprobe -v error -select_streams v:0 -show_entries stream=width -of csv=s=x:p=0 "$FILE_PATH" 2>/dev/null)
+                NAT_FPS=$(ffprobe -v error -select_streams v:0 -show_entries stream=r_frame_rate -of csv=s=x:p=0 "$FILE_PATH" 2>/dev/null | awk -F'/' '{if($2!=0) print int($1/$2); else print int($1)}')
+                [ -z "$NAT_W" ] && NAT_W=1920
+                [ -z "$NAT_FPS" ] && NAT_FPS=30
+                
+                echo -e "\n${WHITE}[ FORMAT CONFIGURATION ]${NC}"
+                read -p " Target Resolution Width [$NAT_W]: " t_res
+                [ -z "$t_res" ] && t_res=$NAT_W
+                
+                read -p " Target Framerate (FPS) [$NAT_FPS]: " t_fps
+                [ -z "$t_fps" ] && t_fps=$NAT_FPS
+                
+                read -p " Keep Audio? (Y/n) [Y]: " t_aud
+                [ -z "$t_aud" ] && t_aud="y"
+                
+                echo -e "\n${WHITE}Launching Standard Video...${NC}"
+                if command -v mpv >/dev/null 2>&1; then
+                    ARGS="--autofit=${t_res}x1080 --fps=$t_fps"
+                    [[ "${t_aud,,}" == "n" ]] && ARGS="$ARGS --no-audio"
+                    mpv $ARGS "$FILE_PATH" >/dev/null 2>&1
+                else
+                    VF_ARGS="scale=$t_res:-1,fps=$t_fps"
+                    ARGS="-v quiet -autoexit -vf $VF_ARGS"
+                    [[ "${t_aud,,}" == "n" ]] && ARGS="$ARGS -an"
+                    ffplay $ARGS "$FILE_PATH" >/dev/null 2>&1
                 fi
-            fi
-            
-            tput civis 
-            
-            trap 'if [ -n "$AUDIO_PID" ]; then kill $AUDIO_PID 2>/dev/null; killall aplay 2>/dev/null; fi; rm -f "/tmp/word_audio.wav" 2>/dev/null; tput cnorm; echo -e "\033[0m\033[2J\033[H"; exit 0' SIGINT SIGTERM
-            
-            python3 -c "
-import os, time, sys
-try:
-    import cv2
-except ImportError:
-    print('\033[0;31mOpenCV missing. Run ?inst to update packages.\033[0m')
-    sys.exit(1)
+                
+                if [ "$t_res" != "$NAT_W" ] || [ "$t_fps" != "$NAT_FPS" ] || [[ "${t_aud,,}" == "n" ]]; then
+                    read -p " Export these compression settings for FTF? (Y/n): " do_export
+                    if [[ "${do_export,,}" != "n" ]]; then
+                        EXPORT_PATH="${FILE_PATH%.*}_export_$$.mp4"
+                        echo -e "${WHITE}Exporting...${NC}"
+                        A_ARG="-c:a aac"
+                        [[ "${t_aud,,}" == "n" ]] && A_ARG="-an"
+                        ffmpeg -y -i "$FILE_PATH" -vf "scale=$t_res:-2,fps=$t_fps" -c:v libx264 -crf 28 $A_ARG "$EXPORT_PATH" >/dev/null 2>&1
+                        mv "$EXPORT_PATH" "${FILE_PATH%.*}_export.mp4"
+                        echo -e "${GREEN}Saved! Ready for FTF.${NC}"
+                    fi
+                fi
+                
+            elif [[ "$vid_mode" == "2" ]]; then
+                if ! command -v python3 >/dev/null 2>&1; then echo -e "${RED}python3 missing.${NC}"; hypervisor_release; exit 1; fi
+                
+                BASENAME="${target%.*}"
+                SUB_PATH="$BANK_DIR/text/$BASENAME.txt"
+                if [ ! -f "$SUB_PATH" ] && [ "$ACTIVE_TARGET" != "NONE" ] && [ -f "$ACTIVE_TARGET/$BASENAME.txt" ]; then SUB_PATH="$ACTIVE_TARGET/$BASENAME.txt"; fi
+                
+                echo -e "\n${ORANGE}--- TERMINAL ASCII CONFIGURATION ---${NC}"
+                read -p " Color Mode [1] Pure White [2] Phosphor Green [3] True Color: " color_mode
+                
+                echo -e "\n${ORANGE}Select Resolution Scale:${NC}"
+                echo -e "  1) Standard (80-col  - Fast & Stable)\n  2) High     (120-col - Crisp)\n  ${RED}3) MAX      (Uncapped - May lag)${NC}"
+                read -p " Choice (1-3): " res_mode
+                if [[ "$res_mode" != "1" && "$res_mode" != "2" && "$res_mode" != "3" ]]; then res_mode="1"; fi
+                
+                echo ""
+                read -p " Audio Sync [1] Muted [2] 8-Bit Retro Crunch [3] 16-Bit Sampled: " audio_mode
+                
+                AUDIO_TMP="/tmp/word_audio_$$.wav"
+                rm -f "$AUDIO_TMP" 2>/dev/null
+                AUDIO_PID=""
+                
+                if [ "$audio_mode" == "2" ]; then
+                    echo -e "${WHITE}Extracting 8-bit audio track to RAM...${NC}"
+                    ffmpeg -y -i "$FILE_PATH" -ar 8000 -ac 1 -c:a pcm_u8 "$AUDIO_TMP" >/dev/null 2>&1
+                    if [ -f "$AUDIO_TMP" ]; then aplay -q "$AUDIO_TMP" 2>/dev/null & AUDIO_PID=$!; fi
+                elif [ "$audio_mode" == "3" ]; then
+                    echo -e "${WHITE}Extracting 16-bit audio track to RAM...${NC}"
+                    ffmpeg -y -i "$FILE_PATH" -ar 16000 -ac 1 -c:a pcm_s16le "$AUDIO_TMP" >/dev/null 2>&1
+                    if [ -f "$AUDIO_TMP" ]; then aplay -q "$AUDIO_TMP" 2>/dev/null & AUDIO_PID=$!; fi
+                fi
+                
+                tput civis 
+                
+                trap 'if [ -n "$AUDIO_PID" ]; then kill $AUDIO_PID 2>/dev/null; pkill -P $$ aplay 2>/dev/null; fi; pkill -P $$ ffmpeg 2>/dev/null; rm -f "$AUDIO_TMP" 2>/dev/null; tput cnorm; stty sane; hypervisor_release; echo -e "\033[0m\033[2J\033[H"; exit 0' SIGINT SIGTERM
+                
+                python3 -c "
+import os, time, sys, signal
+try: import cv2
+except: sys.exit(1)
 
-chars = ['@', '#', 'S', '%', '?', '*', '+', ';', ':', ',', '.']
+paused = False
+def pause_handler(signum, frame):
+    global paused
+    paused = True
+    sys.stdout.write('\033[2J\033[H\033[38;5;208m[ SYSTEM OVERRIDE ]\033[0m\n\033[1;37mPlease wait, a higher priority program is currently utilizing the CPU...\033[0m\n')
+    sys.stdout.flush()
+
+def resume_handler(signum, frame):
+    global paused
+    paused = False
+
+signal.signal(signal.SIGUSR1, pause_handler)
+signal.signal(signal.SIGUSR2, resume_handler)
+
+chars = [' ', '░', '▒', '▓', '█']
 vid_path = sys.argv[1]
 sub_path = sys.argv[2]
 use_color = sys.argv[3] == '3'
@@ -1423,38 +894,32 @@ frame_count = 0
 
 try:
     while cap.isOpened():
+        while paused:
+            time.sleep(1)
+            
         start_time = time.time()
         ret, frame = cap.read()
         if not ret: break
         
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        
-        try:
-            term_width = os.get_terminal_size().columns
-        except OSError:
-            term_width = 80
+        try: term_width = os.get_terminal_size().columns
+        except OSError: term_width = 80
             
-        # RESOLUTION ENGINE CAP
-        if res_mode == '1':
-            width = min(80, term_width)
-        elif res_mode == '2':
-            width = min(120, term_width)
-        else:
-            width = term_width
+        if res_mode == '1': width = min(80, term_width)
+        elif res_mode == '2': width = min(120, term_width)
+        else: width = term_width
             
         aspect = gray.shape[0] / gray.shape[1]
         height = int(width * aspect * 0.45) 
         
         resized_gray = cv2.resize(gray, (width, height))
-        if use_color:
-            resized_color = cv2.resize(frame, (width, height))
+        if use_color: resized_color = cv2.resize(frame, (width, height))
             
         ascii_lines = []
         for y in range(height):
             line_chars = []
             for x in range(width):
-                char_idx = resized_gray[y, x] // 25
-                if char_idx > 10: char_idx = 10
+                char_idx = int((resized_gray[y, x] / 255.0) * 4.99)
                 char = chars[char_idx]
                 
                 if use_color:
@@ -1464,7 +929,7 @@ try:
                     line_chars.append(f'\033[38;2;0;255;0m{char}')
                 else:
                     line_chars.append(f'\033[1;37m{char}')
-            ascii_lines.append(''.join(line_chars))
+            ascii_lines.append(''.join(line_chars) + '\033[0m\033[K')
             
         ascii_frame = '\n'.join(ascii_lines)
             
@@ -1472,68 +937,268 @@ try:
             sub_idx = int((frame_count / fps) // 3) % len(subs)
             current_sub = subs[sub_idx]
             pad = max(0, (width - len(current_sub)) // 2)
-            sub_line = (' ' * pad) + '\033[1;37m' + current_sub + '\033[48;2;0;0;0m'
+            sub_line = (' ' * pad) + '\033[1;37m' + current_sub + '\033[48;2;0;0;0m\033[K'
             lines = ascii_frame.split('\n')
-            if len(lines) > 3:
-                lines[-4] = sub_line
+            if len(lines) > 3: lines[-4] = sub_line
             ascii_frame = '\n'.join(lines)
             
-        sys.stdout.write('\033[H' + ascii_frame)
+        sys.stdout.write('\033[H' + ascii_frame + '\033[J')
         sys.stdout.flush()
         
         elapsed = time.time() - start_time
         sleep_time = target_delay - elapsed
-        if sleep_time > 0:
-            time.sleep(sleep_time)
+        if sleep_time > 0: time.sleep(sleep_time)
             
         frame_count += 1
-except KeyboardInterrupt:
-    pass
+except: pass
 finally:
     cap.release()
-    sys.stdout.write('\033[0m\033[2J\033[H') 
+    sys.stdout.write('\033[0m\033[2J\033[H')
+    sys.stdout.flush()
 " "$FILE_PATH" "$SUB_PATH" "$color_mode" "$res_mode"
 
-            if [ -n "$AUDIO_PID" ]; then
-                kill $AUDIO_PID 2>/dev/null
-                killall aplay 2>/dev/null
+                if [ -n "$AUDIO_PID" ]; then kill $AUDIO_PID 2>/dev/null; pkill -P $$ aplay 2>/dev/null; fi
+                pkill -P $$ ffmpeg 2>/dev/null
+                rm -f "$AUDIO_TMP" 2>/dev/null
+                tput cnorm; stty sane
+                trap - SIGINT SIGTERM
+                
+                echo -e "\n${ORANGE}----------------------------------------${NC}"
+                read -p " Export this scaled video profile for FTF? (Y/n): " do_export
+                if [[ "${do_export,,}" != "n" ]]; then
+                    EXPORT_PATH="${FILE_PATH%.*}_ascii_opt_$$.mp4"
+                    echo -e "${WHITE}Exporting...${NC}"
+                    A_ARG="-an"
+                    [[ "$audio_mode" == "2" ]] && A_ARG="-c:a aac -b:a 16k -ar 8000"
+                    [[ "$audio_mode" == "3" ]] && A_ARG="-c:a aac -b:a 64k -ar 16000"
+                    W_ARG=80
+                    [[ "$res_mode" == "2" ]] && W_ARG=120
+                    [[ "$res_mode" == "3" ]] && W_ARG=200
+                    
+                    ffmpeg -y -i "$FILE_PATH" -vf "scale=$W_ARG:-2,fps=15" -c:v libx264 -crf 28 $A_ARG "$EXPORT_PATH" >/dev/null 2>&1
+                    mv "$EXPORT_PATH" "${FILE_PATH%.*}_ascii_opt.mp4"
+                    echo -e "${GREEN}Saved! Ready for FTF.${NC}"
+                fi
             fi
-            rm -f "/tmp/word_audio.wav" 2>/dev/null
-            tput cnorm
-            trap - SIGINT SIGTERM
+        fi
+        hypervisor_release
+        exit 0
+        ;;
+
+    "?scan")
+        echo -e "${ORANGE}========================================${NC}"
+        echo -e "${WHITE} HARDWARE INTERROGATION PROTOCOL${NC}"
+        echo -e "${ORANGE}========================================${NC}"
+        
+        if lsblk | grep -q "fd0"; then
+            echo "ACTIVE_TARGET=/mnt/floppy" > "$STATE_FILE"
+            echo "MEDIA_TYPE=MAGNETIC" >> "$STATE_FILE"
+            echo -e "${WHITE}[ STATUS: MAGNETIC MEDIA DRIVE DETECTED AT /mnt/floppy ]${NC}"
+            echo -e "${GREEN}[ SYSTEM ALIGNMENT: READY ]${NC}"
+            
+        elif lsblk -nr -o NAME,TRAN | grep -q "usb"; then
+            USB_PART=$(lsblk -nr -o NAME,TRAN | awk '$2=="usb" {print $1}' | grep '[0-9]' | head -n 1)
+            EXISTING_MOUNT=$(lsblk -nr -o MOUNTPOINT "/dev/$USB_PART" 2>/dev/null | grep -v "^$" | head -n 1)
+            
+            if [ -n "$EXISTING_MOUNT" ]; then ACTIVE_TARGET="$EXISTING_MOUNT"
+            else
+                ACTIVE_TARGET="/mnt/word_usb"
+                sudo mkdir -p "$ACTIVE_TARGET"
+                if ! grep -qs "$ACTIVE_TARGET" /proc/mounts; then sudo mount "/dev/$USB_PART" "$ACTIVE_TARGET" 2>/dev/null; fi
+            fi
+            
+            echo "ACTIVE_TARGET=$ACTIVE_TARGET" > "$STATE_FILE"
+            echo "MEDIA_TYPE=SOLID_STATE" >> "$STATE_FILE"
+            echo -e "${WHITE}[ STATUS: USB MASS STORAGE DETECTED AT $ACTIVE_TARGET ]${NC}"
+            echo -e "${GREEN}[ SYSTEM ALIGNMENT: READY ]${NC}"
+        else
+            echo "ACTIVE_TARGET=NONE" > "$STATE_FILE"
+            echo "MEDIA_TYPE=NONE" >> "$STATE_FILE"
+            echo -e "${RED}[ ERROR: NO HARDWARE MEDIA DETECTED. ]${NC}"
+        fi
+        
+        echo -e "\n${ORANGE}========================================${NC}"
+        echo -e "${WHITE} DIAGNOSTIC TOOLS${NC}"
+        echo -e "${ORANGE}========================================${NC}"
+        echo -e "  ${WHITE}1)${NC} Surface Scan (Check magnetic integrity)\n  ${WHITE}2)${NC} Local Hunt   (Search Pi and move to Bank)\n  ${WHITE}3)${NC} Ledger Scan  (Find a file's physical disk)\n  ${WHITE}4)${NC} Auto-Execute (Trigger .autorun or script)\n  ${WHITE}5)${NC} Boot Virtual Floppy Emulator (.img file)\n  ${WHITE}q)${NC} Quit to OS"
+        read -p "Select tool: " scan_choice
+
+        case "$scan_choice" in
+            1)
+                if [ "$ACTIVE_TARGET" != "NONE" ] && mountpoint -q "$ACTIVE_TARGET" 2>/dev/null; then
+                    DEVICE=$(df "$ACTIVE_TARGET" | tail -1 | awk '{print $1}')
+                    if [[ "$DEVICE" == *loop* ]] || [ ! -b "$DEVICE" ]; then
+                        echo -e "${ORANGE}Listening for dead sectors... wait, can you hear it step? Yeah, me neither.${NC}"
+                        echo -e "${GREEN}Virtual Floppy Image detected. Magnetic integrity is artificially 100%.${NC}"
+                    else
+                        echo -e "${ORANGE}Listening for dead sectors on $DEVICE...${NC}"
+                        if ! sudo badblocks -v "$DEVICE"; then echo -e "${RED}ERROR: Magnetic scan failed to access the device. Hardware may be locked.${NC}"; fi
+                    fi
+                else
+                    echo -e "${RED}No media target mounted.${NC}"
+                fi
+                ;;
+            2)
+                read -p "Enter exact filename to hunt: " hunt_target
+                echo -e "${ORANGE}Sweeping local system...${NC}"
+                FOUND_PATH=$(find "$HOME" -type f -name "$hunt_target" 2>/dev/null | head -n 1)
+                if [ -n "$FOUND_PATH" ]; then
+                    echo -e "${WHITE}Target acquired at: $FOUND_PATH${NC}"
+                    read -p "Import to WordBank? (Y/N): " import_choice
+                    if [[ "${import_choice,,}" == "y" ]]; then cp "$FOUND_PATH" "$BANK_DIR/"; fi
+                else
+                    echo -e "${RED}File not found on local system.${NC}"
+                fi
+                ;;
+            3)
+                read -p "Enter document name to locate: " doc_target
+                if grep -q "FILE: $doc_target" "$LEDGER_FILE"; then grep "FILE: $doc_target" "$LEDGER_FILE"
+                else echo -e "${RED}Document not found in physical archives.${NC}"; fi
+                ;;
+            4)
+                if [ "$ACTIVE_TARGET" != "NONE" ] && [ -d "$ACTIVE_TARGET" ]; then
+                    if [ -f "$ACTIVE_TARGET/.autorun" ]; then
+                        AUTORUN_FILE=$(cat "$ACTIVE_TARGET/.autorun")
+                        if [ -f "$ACTIVE_TARGET/$AUTORUN_FILE" ]; then
+                            echo -e "${WHITE}Auto-Run triggered: $AUTORUN_FILE${NC}"
+                            if [[ "$AUTORUN_FILE" == *.py ]]; then
+                                GAME_DIR=$(dirname "$ACTIVE_TARGET/$AUTORUN_FILE")
+                                GAME_FILE=$(basename "$ACTIVE_TARGET/$AUTORUN_FILE")
+                                (cd "$GAME_DIR" && python3 "$GAME_FILE")
+                            elif [[ "$AUTORUN_FILE" == *.mp3 ]]; then mpg123 -q "$ACTIVE_TARGET/$AUTORUN_FILE" 2>/dev/null
+                            elif [[ "$AUTORUN_FILE" == *.mp4 ]]; then bash "$0" view "$AUTORUN_FILE"
+                            elif [[ "$AUTORUN_FILE" == *.sh ]]; then bash "$ACTIVE_TARGET/$AUTORUN_FILE"
+                            fi
+                            exit 0
+                        fi
+                    fi
+                    SCRIPT_FILE=$(ls -1 "$ACTIVE_TARGET"/*.sh 2>/dev/null | head -n 1)
+                    if [ -n "$SCRIPT_FILE" ]; then
+                        echo -e "${WHITE}Executing $SCRIPT_FILE...${NC}"
+                        bash "$SCRIPT_FILE"
+                    else
+                        echo -e "${RED}No auto-run media or scripts found on target.${NC}"
+                    fi
+                fi
+                ;;
+            5)
+                echo -e "${ORANGE}========================================${NC}"
+                echo -e "${WHITE} VIRTUAL FLOPPY EMULATOR${NC}"
+                echo -e "${ORANGE}========================================${NC}"
+                sudo mkdir -p "/mnt/floppy" 2>/dev/null
+                if mountpoint -q "/mnt/floppy" 2>/dev/null; then
+                    echo -e "${RED}A disk or image is already mounted at /mnt/floppy.${NC}"
+                    echo -e "${WHITE}Use 'del! -> 5' to unmount and destroy it first.${NC}"
+                else
+                    echo -e "${WHITE}Generating 1.44MB Virtual Disk...${NC}"
+                    dd if=/dev/zero of="$VIRTUAL_IMG" bs=1024 count=1440 status=none
+                    echo -e "${WHITE}Formatting as FAT12 (Standard Floppy)...${NC}"
+                    if ! command -v mkfs.fat >/dev/null 2>&1; then sudo apt-get install -y dosfstools >/dev/null 2>&1; fi
+                    mkfs.fat -F 12 "$VIRTUAL_IMG" >/dev/null 2>&1
+                    echo -e "${WHITE}Mounting to /mnt/floppy...${NC}"
+                    sudo mount -o loop "$VIRTUAL_IMG" "/mnt/floppy"
+                    echo "ACTIVE_TARGET=/mnt/floppy" > "$STATE_FILE"
+                    echo "MEDIA_TYPE=VIRTUAL_MAGNETIC" >> "$STATE_FILE"
+                    echo -e "${GREEN}Virtual Emulator Online. System sees it as physical hardware.${NC}"
+                    echo -e "${ORANGE}Don't forget to run 'word@ init' and select 'Initialize Hardware' to stamp it!${NC}"
+                fi
+                press_enter
+                ;;
+            q|Q) ;;
+        esac
+        exit 0
+        ;;
+
+    "?rec")
+        if ! command -v ffmpeg >/dev/null 2>&1; then echo -e "${RED}FFmpeg is missing. Run 'word@ ?inst' to resolve.${NC}"; exit 1; fi
+        echo -e "${ORANGE}========================================${NC}"
+        echo -e "${WHITE} WORD@ FIELD RECORDER${NC}"
+        echo -e "${ORANGE}========================================${NC}"
+        echo -e "  1) Audio Tape (Microphone)\n  2) Video Camcorder (Onboard Camera)"
+        read -p " Select mode: " rec_mode
+        read -p " Enter a name for this recording: " rec_name
+        
+        if [ "$rec_mode" == "1" ]; then
+            if ! command -v arecord >/dev/null 2>&1; then echo -e "${RED}arecord tool missing.${NC}"; exit 1; fi
+            echo -e "\n${WHITE}[ LIVE AUDIO RECORDING - Press ENTER to stop ]${NC}"
+            TEMP_WAV="$BANK_DIR/audio/.$rec_name.tmp.wav"
+            FINAL_MP3="$BANK_DIR/audio/$rec_name.mp3"
+            arecord -f cd "$TEMP_WAV" -q &
+            RECORD_PID=$!
+            read -r
+            kill $RECORD_PID 2>/dev/null
+            echo -e "${WHITE}Processing audio...${NC}"
+            if ffmpeg -y -i "$TEMP_WAV" -qscale:a 2 "$FINAL_MP3" 2>/dev/null; then
+                rm -f "$TEMP_WAV"
+                echo -e "${GREEN}Recording saved to WordBank as $rec_name.mp3${NC}"
+            else
+                echo -e "${RED}Error: Audio processing failed.${NC}"
+            fi
+        elif [ "$rec_mode" == "2" ]; then
+            if [ ! -c /dev/video0 ]; then echo -e "${RED}No camera detected at /dev/video0.${NC}"; exit 1; fi
+            echo -e "\n${WHITE}[ LIVE VIDEO CAMCORDER - Press ENTER to stop ]${NC}"
+            FINAL_MP4="$BANK_DIR/video/$rec_name.mp4"
+            ffmpeg -y -f v4l2 -i /dev/video0 -c:v libx264 -preset ultrafast -crf 28 "$FINAL_MP4" >/dev/null 2>&1 < /dev/null &
+            RECORD_PID=$!
+            read -r
+            kill -INT $RECORD_PID 2>/dev/null
+            sleep 1 
+            echo -e "${GREEN}Video log saved to WordBank as $rec_name.mp4${NC}"
+        else
+            echo -e "${RED}Invalid selection.${NC}"
         fi
         exit 0
         ;;
 
+    "write")
+        if [ -n "$2" ]; then filename="$2"; else read -p "Enter document name: " filename; fi
+        filepath="$BANK_DIR/text/$filename.txt"
+        touch "$filepath"
+        if [ -n "$DISPLAY" ] && command -v xdg-open >/dev/null 2>&1; then xdg-open "$filepath" 2>/dev/null || nano "$filepath"
+        else nano "$filepath"; fi
+        exit 0
+        ;;
+
+    "raw")
+        if [ -n "$2" ]; then filename="$2"; else read -p "Enter document name: " filename; fi
+        TEMP_FILE="$BANK_DIR/text/.$filename.tmp"
+        FINAL_FILE="$BANK_DIR/text/$filename.txt"
+        echo -e "${ORANGE}========================================${NC}"
+        echo -e "${WHITE} RAW WRITING MODE ENGAGED${NC}"
+        echo -e "${ORANGE} Type //SAVE on a new line to keep your work.\n Type //REJECT on a new line to burn it.${NC}"
+        echo -e "${ORANGE}========================================${NC}"
+        > "$TEMP_FILE"
+        while IFS= read -r line; do
+            if [[ "$line" == "//SAVE" ]]; then
+                mv "$TEMP_FILE" "$FINAL_FILE"
+                echo -e "${WHITE}Draft secured in Bank as $filename.txt${NC}"
+                exit 0
+            elif [[ "$line" == "//REJECT" ]]; then
+                rm -f "$TEMP_FILE"
+                echo -e "${RED}Draft rejected. Burned to ash.${NC}"
+                exit 0
+            else
+                echo "$line" >> "$TEMP_FILE"
+            fi
+        done
+        ;;
+
     "?flop")
-        if [ "$ACTIVE_TARGET" != "NONE" ] && mountpoint -q "$ACTIVE_TARGET" 2>/dev/null; then
-            df -h "$ACTIVE_TARGET" | awk 'NR==1 || NR==2'
-        else
-            echo -e "${RED}No media mounted. Run ?scan.${NC}"
-        fi
+        if [ "$ACTIVE_TARGET" != "NONE" ] && mountpoint -q "$ACTIVE_TARGET" 2>/dev/null; then df -h "$ACTIVE_TARGET" | awk 'NR==1 || NR==2'
+        else echo -e "${RED}No media mounted. Run ?scan.${NC}"; fi
         exit 0
         ;;
 
     "?gath")
         FILE_COUNT=$(find "$BANK_DIR" -type f | wc -l)
-        if [ "$FILE_COUNT" -eq 0 ]; then
-            echo -e "${ORANGE}The WordBank is currently empty.${NC}"
-            exit 0
-        fi
+        if [ "$FILE_COUNT" -eq 0 ]; then echo -e "${ORANGE}The WordBank is currently empty.${NC}"; exit 0; fi
         BANK_SIZE=$(du -sh "$BANK_DIR" | awk '{print $1}')
-        echo -e "${WHITE}Total Files  : $FILE_COUNT${NC}"
-        echo -e "${WHITE}Total Weight : $BANK_SIZE${NC}"
-        
-        echo -e "\n${ORANGE}--- TEXT ---${NC}"
-        ls -lh "$BANK_DIR"/text 2>/dev/null | awk 'NR>1 {print $5 "\t" $9}'
-        echo -e "${ORANGE}--- AUDIO ---${NC}"
-        ls -lh "$BANK_DIR"/audio 2>/dev/null | awk 'NR>1 {print $5 "\t" $9}'
-        echo -e "${ORANGE}--- IMAGES ---${NC}"
-        ls -lh "$BANK_DIR"/images 2>/dev/null | awk 'NR>1 {print $5 "\t" $9}'
-        echo -e "${ORANGE}--- GAMES ---${NC}"
-        ls -lh "$BANK_DIR"/games 2>/dev/null | awk 'NR>1 {print $5 "\t" $9}'
-        echo -e "${ORANGE}--- VIDEO ---${NC}"
-        ls -lh "$BANK_DIR"/video 2>/dev/null | awk 'NR>1 {print $5 "\t" $9}'
+        echo -e "${WHITE}Total Files  : $FILE_COUNT${NC}\n${WHITE}Total Weight : $BANK_SIZE${NC}"
+        echo -e "\n${ORANGE}--- TEXT ---${NC}"; ls -lh "$BANK_DIR"/text 2>/dev/null | awk 'NR>1 {print $5 "\t" $9}'
+        echo -e "${ORANGE}--- AUDIO ---${NC}"; ls -lh "$BANK_DIR"/audio 2>/dev/null | awk 'NR>1 {print $5 "\t" $9}'
+        echo -e "${ORANGE}--- IMAGES ---${NC}"; ls -lh "$BANK_DIR"/images 2>/dev/null | awk 'NR>1 {print $5 "\t" $9}'
+        echo -e "${ORANGE}--- GAMES ---${NC}"; ls -lh "$BANK_DIR"/games 2>/dev/null | awk 'NR>1 {print $5 "\t" $9}'
+        echo -e "${ORANGE}--- VIDEO ---${NC}"; ls -lh "$BANK_DIR"/video 2>/dev/null | awk 'NR>1 {print $5 "\t" $9}'
         exit 0
         ;;
 
@@ -1546,53 +1211,22 @@ finally:
         echo -e "${RED}========================================${NC}"
         echo -e "${WHITE} BURN PROTOCOL INITIATED${NC}"
         echo -e "${RED}========================================${NC}"
-        echo -e " 1) File         (Erase specific document)"
-        echo -e " 2) Bank         (Purge local WordBank)"
-        echo -e " 3) Media        (Format currently mounted disk)"
-        echo -e " 4) Reset        (Full system ledger & bank reset)"
-        echo -e " 5) Virtual Disk (Unmount & delete virtual .img)"
-        echo -e "${RED}========================================${NC}"
+        echo -e " 1) File         (Erase specific document)\n 2) Bank         (Purge local WordBank)\n 3) Media        (Format currently mounted disk)\n 4) Reset        (Full system ledger & bank reset)\n 5) Virtual Disk (Unmount & delete virtual .img)"
         read -p "Select protocol (1-5): " burn_choice
-
         case "$burn_choice" in
-            1)
-                read -p "Enter exact filename to burn (e.g. story.txt): " target
-                FOUND=$(find "$BANK_DIR" -type f -name "$target" | head -n 1)
-                if [ -n "$FOUND" ]; then
-                    rm -f "$FOUND"
-                    echo -e "${RED}Erased.${NC}"
-                else
-                    echo -e "${ORANGE}Not found.${NC}"
-                fi
-                press_enter
-                ;;
-            2)
-                rm -rf "$BANK_DIR"/text/* "$BANK_DIR"/audio/* "$BANK_DIR"/images/* "$BANK_DIR"/games/* "$BANK_DIR"/video/*
-                echo -e "${RED}Entire WordBank purged.${NC}"
-                ;;
-            3)
-                if [ "$ACTIVE_TARGET" != "NONE" ]; then
-                    sudo rm -rf "${ACTIVE_TARGET:?}"/* "${ACTIVE_TARGET:?}"/.[!.]* 2>/dev/null
-                    echo -e "${RED}Physical media wiped.${NC}"
-                else
-                    echo -e "${RED}No target mounted to wipe.${NC}"
-                fi
-                ;;
-            4)
-                > "$LEDGER_FILE"
-                rm -rf "$BANK_DIR"/text/* "$BANK_DIR"/audio/* "$BANK_DIR"/images/* "$BANK_DIR"/games/* "$BANK_DIR"/video/*
-                echo -e "${RED}System Reset Complete.${NC}"
-                ;;
-            5)
-                if [ -f "$VIRTUAL_IMG" ]; then
-                    sudo umount "/mnt/floppy" 2>/dev/null
-                    rm -f "$VIRTUAL_IMG"
-                    echo -e "${RED}Virtual Floppy image destroyed.${NC}"
-                else
-                    echo -e "${ORANGE}No virtual floppy image found.${NC}"
-                fi
-                press_enter
-                ;;
+            1) read -p "Enter exact filename to burn (e.g. story.txt): " target
+               FOUND=$(find "$BANK_DIR" -type f -name "$target" | head -n 1)
+               if [ -n "$FOUND" ]; then rm -f "$FOUND"; echo -e "${RED}Erased.${NC}"; else echo -e "${ORANGE}Not found.${NC}"; fi
+               press_enter ;;
+            2) rm -rf "$BANK_DIR"/text/* "$BANK_DIR"/audio/* "$BANK_DIR"/images/* "$BANK_DIR"/games/* "$BANK_DIR"/video/*
+               echo -e "${RED}Entire WordBank purged.${NC}" ;;
+            3) if [ "$ACTIVE_TARGET" != "NONE" ]; then sudo rm -rf "${ACTIVE_TARGET:?}"/* "${ACTIVE_TARGET:?}"/.[!.]* 2>/dev/null; echo -e "${RED}Physical media wiped.${NC}"
+               else echo -e "${RED}No target mounted to wipe.${NC}"; fi ;;
+            4) > "$LEDGER_FILE"; rm -rf "$BANK_DIR"/text/* "$BANK_DIR"/audio/* "$BANK_DIR"/images/* "$BANK_DIR"/games/* "$BANK_DIR"/video/*
+               echo -e "${RED}System Reset Complete.${NC}" ;;
+            5) if [ -f "$VIRTUAL_IMG" ]; then sudo umount "/mnt/floppy" 2>/dev/null; rm -f "$VIRTUAL_IMG"; echo -e "${RED}Virtual Floppy image destroyed.${NC}"
+               else echo -e "${ORANGE}No virtual floppy image found.${NC}"; fi
+               press_enter ;;
         esac
         exit 0
         ;;
