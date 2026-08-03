@@ -1245,6 +1245,22 @@ finally:
         exit 0
         ;;
 
+"theme")
+        echo -e "${ORANGE}========================================${NC}"
+        echo -e "${WHITE} WORD@ THEME CONFIGURATION${NC}"
+        echo -e "${ORANGE}========================================${NC}"
+        if grep -q "word_bg_override" "$HOME/.bashrc"; then
+            sed -i '/word_bg_override/d' "$HOME/.bashrc"
+            echo -en "\033]11;#300A24\007"
+            echo -e "${WHITE}Theme reverted to Ubuntu Plum.${NC}"
+        else
+            echo 'echo -en "\033]11;#000000\007" # word_bg_override' >> "$HOME/.bashrc"
+            echo -en "\033]11;#000000\007"
+            echo -e "${GREEN}Pure Black Theme applied globally to all terminal windows.${NC}"
+        fi
+        exit 0
+        ;;
+
     *)
         echo -e "${RED}Unknown command. Type 'word@' to see the dashboard or 'word@ help!' for descriptions.${NC}"
         ;;
