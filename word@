@@ -73,7 +73,7 @@ case "$1" in
         echo -e " [PRODUCTIVITY] write, raw"
         echo -e " [MEDIA/HW]     ?rec, view"
         echo -e " [DISK/MEDIA]   ?scan, FTF, del!, ?flop"
-        echo -e " [SYSTEM]       ?inst, theme, ?work, ?gath"
+        echo -e " [SYSTEM]       ?inst, theme, ?work, ?gath, help!"
         echo -e "${ORANGE}========================================${NC}"
         
         if [ "$active_tasks" -gt 0 ]; then
@@ -185,6 +185,39 @@ except: pass
             echo -en "\033]11;#000000\007"
             echo -e "${GREEN}Pure Black Theme applied globally.${NC}"
         fi
+        exit 0
+        ;;
+
+"help!")
+        clear
+        echo -e "${ORANGE}========================================${NC}"
+        echo -e "${WHITE} word@ SYSTEM MANUAL${NC}"
+        echo -e "${ORANGE}========================================${NC}"
+        echo -e "${GREEN} [ PRODUCTIVITY ]${NC}"
+        echo -e "  write [name] : Standard text editor (Nano/GUI)."
+        echo -e "  raw [name]   : Distraction-free logger with inline math."
+        echo -e "                 (Type 'pyth! [ 2+2 ] ?' inside the file to calculate)."
+        
+        echo -e "\n${GREEN} [ MEDIA & HARDWARE ]${NC}"
+        echo -e "  view         : Open media viewer (Audio, Video, ASCII)."
+        echo -e "  ?rec         : Record audio/video directly to Bank."
+        
+        echo -e "\n${GREEN} [ DISK MANAGEMENT ]${NC}"
+        echo -e "  ?scan        : Find and mount external USB/Floppy drives."
+        echo -e "  FTF          : File-To-Floppy. Compress and transfer banks."
+        echo -e "  ?flop        : Initialize virtual floppy emulation."
+        echo -e "  del!         : Secure deletion and disk formatting."
+        
+        echo -e "\n${GREEN} [ SYSTEM CORE ]${NC}"
+        echo -e "  ?inst        : Open the App Store to download Addons & Updates."
+        echo -e "  theme        : Toggle pure black terminal background globally."
+        echo -e "  ?work / ?gath: System diagnostics, bank weight, and network health."
+        
+        echo -e "\n${GREEN} [ OPTIONAL SOFTWARE (Run ?inst) ]${NC}"
+        echo -e "  run          : Open the Software Launcher (Games/Tools)."
+        echo -e "  ?calc        : Launch the Interactive Scratchpad Math Engine."
+        echo -e "${ORANGE}========================================${NC}"
+        press_enter
         exit 0
         ;;
 
