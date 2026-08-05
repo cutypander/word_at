@@ -270,14 +270,14 @@ except: pass
         exit 0
         ;;
 
-    "?play"|"?calc")
+"run"|"?calc")
         # Dynamic Addon Router
-        if [ "$1" == "?play" ] && [ -f "$ADDON_DIR/word_play.sh" ]; then
-            bash "$ADDON_DIR/word_play.sh"
-        elif [ "$1" == "?calc" ] && [ -f "$ADDON_DIR/word_calc.py" ]; then
-            python3 "$ADDON_DIR/word_calc.py"
+        if [ "$1" == "run" ] && [ -f "$ADDON_DIR/word_launcher.sh" ]; then
+            bash "$ADDON_DIR/word_launcher.sh"
+        elif [ "$1" == "?calc" ] && [ -f "$ADDON_DIR/word_math.py" ]; then
+            python3 "$ADDON_DIR/word_math.py"
         else
-            echo -e "${RED}Addon missing! Run 'word@ ?inst' to download this feature.${NC}"
+            echo -e "${RED}Software missing! Run 'word@ ?inst' to download this feature.${NC}"
         fi
         exit 0
         ;;
