@@ -124,9 +124,9 @@ except: pass
         echo -e "  2) Verify Dependencies (ffmpeg, inotify-tools, etc.)"
         echo -e "\n${WHITE} [ OPTIONAL ADDONS ]${NC}"
         
-        [ -f "$ADDON_DIR/word_ascii.py" ] && echo -e "  3) ASCII Video Engine  ${GREEN}[INSTALLED]${NC}" || echo -e "  3) ASCII Video Engine  ${RED}[MISSING]${NC}"
-        [ -f "$ADDON_DIR/word_play.sh" ] && echo -e "  4) Game Engine (?play) ${GREEN}[INSTALLED]${NC}" || echo -e "  4) Game Engine (?play) ${RED}[MISSING]${NC}"
-        [ -f "$ADDON_DIR/word_calc.py" ] && echo -e "  5) Math Engine (?calc) ${GREEN}[INSTALLED]${NC}" || echo -e "  5) Math Engine (?calc) ${RED}[MISSING]${NC}"
+       [ -f "$ADDON_DIR/word_ascii.py" ] && echo -e "  3) ASCII Video Engine      ${GREEN}[INSTALLED]${NC}" || echo -e "  3) ASCII Video Engine      ${RED}[MISSING]${NC}"
+        [ -f "$ADDON_DIR/word_launcher.sh" ] && echo -e "  4) Software Launcher (run) ${GREEN}[INSTALLED]${NC}" || echo -e "  4) Software Launcher (run) ${RED}[MISSING]${NC}"
+        [ -f "$ADDON_DIR/word_math.py" ] && echo -e "  5) Math Engine (?calc)     ${GREEN}[INSTALLED]${NC}" || echo -e "  5) Math Engine (?calc)     ${RED}[MISSING]${NC}"
         
         echo -e "\n  q) Quit"
         read -p " Select target (1-5): " inst_choice
@@ -134,9 +134,12 @@ except: pass
         case "$inst_choice" in
             1)
                 echo -e "${WHITE}Fetching latest OS Core from GitHub...${NC}"
-                # In the future, this points to your raw GitHub URL
-                # sudo curl -sL "https://raw.githubusercontent.com/..." -o /usr/local/bin/word@
-                echo -e "${GREEN}Update mechanism ready for GitHub linkage.${NC}"
+                if sudo curl -sL "https://raw.githubusercontent.com/cutypander/word_at/main/word@" -o /usr/local/bin/word@; then
+                    sudo chmod +x /usr/local/bin/word@
+                    echo -e "${GREEN}OS Core successfully updated! Restart word@ to apply changes.${NC}"
+                else
+                    echo -e "${RED}Update failed. Check network connection.${NC}"
+                fi
                 press_enter ;;
             2)
                 echo -e "${WHITE}Installing OS packages...${NC}"
@@ -144,13 +147,33 @@ except: pass
                 sudo apt-get install -y python3 curl ffmpeg mpg123 alsa-utils inotify-tools dosfstools imagemagick python3-opencv v4l-utils
                 echo -e "${GREEN}Dependencies met.${NC}"
                 press_enter ;;
-            3|4|5)
-                echo -e "${ORANGE}Addon downloads will be linked to GitHub repository here.${NC}"
+            3)
+                echo -e "${WHITE}Downloading ASCII Video Engine...${NC}"
+                if curl -sL "https://raw.githubusercontent.com/cutypander/word_at/main/word_ascii.py" -o "$ADDON_DIR/word_ascii.py"; then
+                    echo -e "${GREEN}ASCII Video Engine installed!${NC}"
+                else
+                    echo -e "${RED}Download failed.${NC}"
+                fi
+                press_enter ;;
+            4)
+                echo -e "${WHITE}Downloading Software Launcher...${NC}"
+                if curl -sL "https://raw.githubusercontent.com/cutypander/word_at/main/word_launcher.sh" -o "$ADDON_DIR/word_launcher.sh"; then
+                    chmod +x "$ADDON_DIR/word_launcher.sh"
+                    echo -e "${GREEN}Software Launcher installed!${NC}"
+                else
+                    echo -e "${RED}Download failed.${NC}"
+                fi
+                press_enter ;;
+            5)
+                echo -e "${WHITE}Downloading Math Engine...${NC}"
+                if curl -sL "https://raw.githubusercontent.com/cutypander/word_at/main/word_math.py" -o "$ADDON_DIR/word_math.py"; then
+                    echo -e "${GREEN}Math Engine installed!${NC}"
+                else
+                    echo -e "${RED}Download failed.${NC}"
+                fi
                 press_enter ;;
             *) ;;
         esac
-        exit 0
-        ;;
 
     "theme")
         if grep -q "word_bg_override" "$HOME/.bashrc"; then
