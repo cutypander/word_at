@@ -308,41 +308,46 @@ except: pass
                 if [ -f "$ADDON_DIR/word_ascii.py" ]; then
                     SUB_PATH="${FILE_PATH%.*}.txt"
                     
-                    # 1. Spawn audio in the background
+                    # 1. Spawn audio in the background and freeze it
                     mpv --no-video --quiet "$FILE_PATH" >/dev/null 2>&1 &
                     AUDIO_PID=$!
-                    
-                    # 2. Immediately freeze the audio process at the kernel level
                     sleep 0.1
                     kill -STOP $AUDIO_PID 2>/dev/null
                     
-                    # 3. Setup strict trap for Ctrl+C to kill everything silently
+                    # 2. Trap for clean exit if you hit Ctrl+C
                     trap 'kill -9 $AUDIO_PID $WATCHER_PID 2>/dev/null; hypervisor_release; exit 0' INT
                     
-                    # 4. Silent Watcher: Waits for Python CPU to spike, then thaws the audio
+                    # 3. Smart Sync 3.0: Process State Tracker
                     (
                         sleep 0.5
                         PY_PID=$(pgrep -n -f "word_ascii.py")
                         if [ -n "$PY_PID" ]; then
+                            SLEEP_COUNT=0
                             while kill -0 "$PY_PID" 2>/dev/null; do
-                                CPU=$(ps -p "$PY_PID" -o %cpu= 2>/dev/null | awk '{print int($1)}')
-                                if [[ -n "$CPU" && "$CPU" -gt 1 ]]; then
-                                    kill -CONT $AUDIO_PID 2>/dev/null
-                                    break
+                                STAT=$(ps -p "$PY_PID" -o stat= 2>/dev/null)
+                                if [[ "$STAT" == S* ]]; then
+                                    # Python is waiting at the prompt
+                                    ((SLEEP_COUNT++))
+                                else
+                                    # If it was waiting at the prompt for at least 0.4s, and is now running
+                                    if [ "$SLEEP_COUNT" -ge 4 ]; then
+                                        kill -CONT $AUDIO_PID 2>/dev/null
+                                        break
+                                    fi
+                                    # Reset if it was just a random I/O blip during loading
+                                    SLEEP_COUNT=0
                                 fi
-                                sleep 0.2
+                                sleep 0.1
                             done
                         fi
                     ) >/dev/null 2>&1 &
                     WATCHER_PID=$!
-                    
-                    # 5. Prevent Bash from throwing a "Killed" tantrum when we terminate the watcher
                     disown $WATCHER_PID 2>/dev/null
                     
-                    # 6. Run the visual ASCII engine (User answers prompt here)
+                    # 4. Run the visual ASCII engine
                     python3 "$ADDON_DIR/word_ascii.py" "$FILE_PATH" "$SUB_PATH"
                     
-                    # 7. Cleanup silently when the video finishes
+                    # 5. Cleanup silently when finished
                     kill -9 $AUDIO_PID 2>/dev/null
                     kill -9 $WATCHER_PID 2>/dev/null
                     trap - INT
