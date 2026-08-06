@@ -308,43 +308,44 @@ except: pass
                 if [ -f "$ADDON_DIR/word_ascii.py" ]; then
                     SUB_PATH="${FILE_PATH%.*}.txt"
                     
-                    # 1. Setup a named pipe to control background audio
-                    rm -f /tmp/word_audio_fifo
-                    mkfifo /tmp/word_audio_fifo
-                    
-                    # 2. Spawn mpv PAUSED so it waits for you to answer the Python prompt
-                    mpv --no-video --quiet --pause --input-file=/tmp/word_audio_fifo "$FILE_PATH" >/dev/null 2>&1 &
+                    # 1. Spawn audio in the background
+                    mpv --no-video --quiet "$FILE_PATH" >/dev/null 2>&1 &
                     AUDIO_PID=$!
                     
-                    # 3. Setup strict trap for Ctrl+C (SIGINT) to prevent zombie audio
-                    trap 'kill -9 $AUDIO_PID 2>/dev/null; rm -f /tmp/word_audio_fifo; hypervisor_release; exit 0' INT
+                    # 2. Immediately freeze the audio process at the kernel level
+                    sleep 0.1
+                    kill -STOP $AUDIO_PID 2>/dev/null
                     
-                    # 4. Smart Sync: Watch Python's CPU usage. It stays at 0% during the prompt. 
-                    # The millisecond it spikes > 1% (rendering frames), we unpause the audio!
+                    # 3. Setup strict trap for Ctrl+C to kill everything silently
+                    trap 'kill -9 $AUDIO_PID $WATCHER_PID 2>/dev/null; hypervisor_release; exit 0' INT
+                    
+                    # 4. Silent Watcher: Waits for Python CPU to spike, then thaws the audio
                     (
                         sleep 0.5
                         PY_PID=$(pgrep -n -f "word_ascii.py")
                         if [ -n "$PY_PID" ]; then
-                            while kill -0 $PY_PID 2>/dev/null; do
-                                CPU=$(ps -p $PY_PID -o %cpu= 2>/dev/null | awk '{print int($1)}')
-                                if [ -n "$CPU" ] && [ "$CPU" -gt 1 ]; then
-                                    echo "cycle pause" > /tmp/word_audio_fifo 2>/dev/null
+                            while kill -0 "$PY_PID" 2>/dev/null; do
+                                CPU=$(ps -p "$PY_PID" -o %cpu= 2>/dev/null | awk '{print int($1)}')
+                                if [[ -n "$CPU" && "$CPU" -gt 1 ]]; then
+                                    kill -CONT $AUDIO_PID 2>/dev/null
                                     break
                                 fi
-                                sleep 0.1
+                                sleep 0.2
                             done
                         fi
-                    ) &
+                    ) >/dev/null 2>&1 &
                     WATCHER_PID=$!
                     
-                    # 5. Run the visual ASCII engine
+                    # 5. Prevent Bash from throwing a "Killed" tantrum when we terminate the watcher
+                    disown $WATCHER_PID 2>/dev/null
+                    
+                    # 6. Run the visual ASCII engine (User answers prompt here)
                     python3 "$ADDON_DIR/word_ascii.py" "$FILE_PATH" "$SUB_PATH"
                     
-                    # 6. Clean up everything when video finishes naturally
+                    # 7. Cleanup silently when the video finishes
                     kill -9 $AUDIO_PID 2>/dev/null
                     kill -9 $WATCHER_PID 2>/dev/null
-                    rm -f /tmp/word_audio_fifo
-                    trap - INT # Remove trap
+                    trap - INT
                 else
                     echo -e "${RED}Addon missing! Use ?inst to download it.${NC}"
                 fi
