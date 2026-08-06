@@ -291,7 +291,7 @@ except: pass
         if [[ "$FILE_PATH" == *.mp3 ]]; then
             echo -e "${WHITE}Playing Audio: $target${NC}"
             mpg123 -q "$FILE_PATH" 2>/dev/null
-        elif [[ "$FILE_PATH" == *.mp4 ]]; then
+elif [[ "$FILE_PATH" == *.mp4 ]]; then
             echo -e "${ORANGE}========================================${NC}"
             echo -e "  1) Standard Video (GUI Player)"
             if [ -f "$ADDON_DIR/word_ascii.py" ]; then
@@ -302,19 +302,27 @@ except: pass
             read -p " Select Mode: " vid_mode
 
             if [[ "$vid_mode" == "1" ]]; then
-                ffplay -v quiet -autoexit "$FILE_PATH" >/dev/null 2>&1 || mpv "$FILE_PATH" >/dev/null 2>&1
+                # Standard playback
+                mpv --quiet "$FILE_PATH" >/dev/null 2>&1
             elif [[ "$vid_mode" == "2" ]]; then
                 if [ -f "$ADDON_DIR/word_ascii.py" ]; then
                     SUB_PATH="${FILE_PATH%.*}.txt"
+                    
+                    # 1. Spawn headless audio via mpv instead of ffplay
+                    mpv --no-video --quiet "$FILE_PATH" >/dev/null 2>&1 &
+                    AUDIO_PID=$!
+                    
+                    # 2. Run the visual ASCII engine
                     python3 "$ADDON_DIR/word_ascii.py" "$FILE_PATH" "$SUB_PATH"
+                    
+                    # 3. Terminate the background audio the moment the video closes
+                    kill -9 $AUDIO_PID 2>/dev/null
                 else
                     echo -e "${RED}Addon missing! Use ?inst to download it.${NC}"
                 fi
             fi
         fi
-        hypervisor_release
-        exit 0
-        ;;
+     ;;
 
     "run"|"?calc"|"web")
         if [ "$1" == "run" ] && [ -f "$ADDON_DIR/word_launcher.sh" ]; then
