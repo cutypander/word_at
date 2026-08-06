@@ -265,7 +265,7 @@ except: pass
         exit 0
         ;;
 
-    "view")
+"view")
         hypervisor_lock 3 "Media Viewer"
         if [ -z "$2" ]; then
             shopt -s nullglob
@@ -291,7 +291,7 @@ except: pass
         if [[ "$FILE_PATH" == *.mp3 ]]; then
             echo -e "${WHITE}Playing Audio: $target${NC}"
             mpg123 -q "$FILE_PATH" 2>/dev/null
-elif [[ "$FILE_PATH" == *.mp4 ]]; then
+        elif [[ "$FILE_PATH" == *.mp4 ]]; then
             echo -e "${ORANGE}========================================${NC}"
             echo -e "  1) Standard Video (GUI Player)"
             if [ -f "$ADDON_DIR/word_ascii.py" ]; then
@@ -308,21 +308,50 @@ elif [[ "$FILE_PATH" == *.mp4 ]]; then
                 if [ -f "$ADDON_DIR/word_ascii.py" ]; then
                     SUB_PATH="${FILE_PATH%.*}.txt"
                     
-                    # 1. Spawn headless audio via mpv instead of ffplay
-                    mpv --no-video --quiet "$FILE_PATH" >/dev/null 2>&1 &
+                    # 1. Setup a named pipe to control background audio
+                    rm -f /tmp/word_audio_fifo
+                    mkfifo /tmp/word_audio_fifo
+                    
+                    # 2. Spawn mpv PAUSED so it waits for you to answer the Python prompt
+                    mpv --no-video --quiet --pause --input-file=/tmp/word_audio_fifo "$FILE_PATH" >/dev/null 2>&1 &
                     AUDIO_PID=$!
                     
-                    # 2. Run the visual ASCII engine
+                    # 3. Setup strict trap for Ctrl+C (SIGINT) to prevent zombie audio
+                    trap 'kill -9 $AUDIO_PID 2>/dev/null; rm -f /tmp/word_audio_fifo; hypervisor_release; exit 0' INT
+                    
+                    # 4. Smart Sync: Watch Python's CPU usage. It stays at 0% during the prompt. 
+                    # The millisecond it spikes > 1% (rendering frames), we unpause the audio!
+                    (
+                        sleep 0.5
+                        PY_PID=$(pgrep -n -f "word_ascii.py")
+                        if [ -n "$PY_PID" ]; then
+                            while kill -0 $PY_PID 2>/dev/null; do
+                                CPU=$(ps -p $PY_PID -o %cpu= 2>/dev/null | awk '{print int($1)}')
+                                if [ -n "$CPU" ] && [ "$CPU" -gt 1 ]; then
+                                    echo "cycle pause" > /tmp/word_audio_fifo 2>/dev/null
+                                    break
+                                fi
+                                sleep 0.1
+                            done
+                        fi
+                    ) &
+                    WATCHER_PID=$!
+                    
+                    # 5. Run the visual ASCII engine
                     python3 "$ADDON_DIR/word_ascii.py" "$FILE_PATH" "$SUB_PATH"
                     
-                    # 3. Terminate the background audio the moment the video closes
+                    # 6. Clean up everything when video finishes naturally
                     kill -9 $AUDIO_PID 2>/dev/null
+                    kill -9 $WATCHER_PID 2>/dev/null
+                    rm -f /tmp/word_audio_fifo
+                    trap - INT # Remove trap
                 else
                     echo -e "${RED}Addon missing! Use ?inst to download it.${NC}"
                 fi
             fi
         fi
-     ;;
+        hypervisor_release
+        ;;
 
     "run"|"?calc"|"web")
         if [ "$1" == "run" ] && [ -f "$ADDON_DIR/word_launcher.sh" ]; then
