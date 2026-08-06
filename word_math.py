@@ -1,51 +1,81 @@
 import sys
 import re
+import math
 
-print("========================================")
-print(" INTERACTIVE MATH ENGINE (Step-by-Step)")
-print("========================================")
-print(" Type 'q' to quit.")
+# ANSI Terminal Colors
+ORANGE = '\033[38;5;208m'
+WHITE = '\033[1;37m'
+RED = '\033[0;31m'
+GREEN = '\033[0;32m'
+CYAN = '\033[0;36m'
+NC = '\033[0m'
+
+print(f"{ORANGE}========================================{NC}")
+print(f"{WHITE} INTERACTIVE MATH ENGINE (Advanced){NC}")
+print(f"{ORANGE}========================================{NC}")
+print(f"{CYAN} [ SYNTAX GUIDE ]{NC}")
+print(f"  Fractions : {WHITE}1/2{NC} (Standard division)")
+print(f"  Exponents : {WHITE}2^3{NC} or {WHITE}2**3{NC}")
+print(f"  Factorial : {WHITE}5!{NC}")
+print(f"  Functions : {WHITE}sqrt(9), sin(pi), log(100){NC}")
+print(f"  Constants : {WHITE}pi, e, tau{NC}")
+print(f"{ORANGE}========================================{NC}")
+print(" Type 'q' to quit.\n")
+
+# Build a safe mathematical environment using Python's math library
+safe_env = {"__builtins__": None}
+for name in dir(math):
+    if not name.startswith('_'):
+        safe_env[name] = getattr(math, name)
+safe_env['abs'] = abs
+safe_env['round'] = round
 
 while True:
     try:
-        expr = input("Math > ")
+        expr = input(f"{WHITE}Math > {NC}")
         if expr.lower() == 'q':
             break
-        
-        # Clean up the input for evaluation
-        clean_expr = expr.replace(' ', '').replace('^', '**').replace('x', '*').replace('{', '(').replace('}', ')')
-        
+        if not expr.strip():
+            continue
+
+        # 1. Translate Human Math to Python Logic
+        # Replace 'x' with '*' if it's surrounded by numbers
+        clean_expr = re.sub(r'(?<=\d)\s*x\s*(?=\d)', '*', expr)
+        # Replace ^ with ** for exponents
+        clean_expr = clean_expr.replace('^', '**').replace('{', '(').replace('}', ')')
+        # Translate factorials: 100! -> factorial(100)
+        clean_expr = re.sub(r'(\d+)!', r'factorial(\1)', clean_expr)
+
         current_expr = clean_expr
         step_count = 1
-        
-        # Loop to find and solve innermost parentheses step-by-step
-        while '(' in current_expr:
-            # Find innermost parentheses using regex
-            match = re.search(r'\([^()]+\)', current_expr)
+
+        # 2. Step-by-Step Breakdown (For arithmetic)
+        while True:
+            # Find innermost parentheses NOT preceded by a letter (protects functions like 'factorial(')
+            match = re.search(r'(?<![a-zA-Z])\(([^()]+)\)', current_expr)
             if match:
                 sub_expr = match.group(0)
+                inner = match.group(1)
                 try:
-                    # Evaluate just the chunk inside the parentheses
-                    sub_result = str(eval(sub_expr))
-                    current_expr = current_expr.replace(sub_expr, sub_result)
-                    
-                    # Clean it up for the terminal display
+                    sub_result = str(eval(inner, safe_env))
+                    current_expr = current_expr.replace(sub_expr, sub_result, 1)
                     display_expr = current_expr.replace('**', '^')
-                    print(f" [Step {step_count}]  {display_expr}")
+                    print(f" {CYAN}[Step {step_count}]{NC}  {display_expr}")
                     step_count += 1
                 except:
                     break
             else:
                 break
-                
-        # Final Evaluation of the entire cleaned expression
-        final_ans = eval(clean_expr)
+
+        # 3. Final Evaluation
+        final_ans = eval(clean_expr, safe_env)
         
-        # Drop the decimal if it's a perfectly clean whole number
+        # Format integers cleanly to drop the .0 if it's a whole number
         if isinstance(final_ans, float) and final_ans.is_integer():
             final_ans = int(final_ans)
-        
-        print(f" [Final]   {final_ans}\n")
-        
+            
+        print(f" {GREEN}[Final]{NC}   {final_ans}\n")
+
     except Exception as e:
-        print(f" [Error] Invalid syntax. Check your math! ({e})\n")
+        # Provide a clean error message
+        print(f" {RED}[Error] Invalid syntax or mathematical impossibility.{NC}\n")
