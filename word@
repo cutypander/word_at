@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # ==========================================
-# word@ OS CORE - FEATHERWEIGHT EDITION (v3.0)
+# word@ OS CORE - FEATHERWEIGHT EDITION (v3.1)
 # ==========================================
-KERNEL_VERSION="3.0"
+KERNEL_VERSION="3.1"
 BANK_DIR="$HOME/word_at_bank"
 ADDON_DIR="$HOME/.word_addons"
 LEDGER_FILE="$HOME/.floppy_ledger"
@@ -73,7 +73,7 @@ case "$1" in
         echo -e " [PRODUCTIVITY] write, raw"
         echo -e " [MEDIA/HW]     ?rec, view"
         echo -e " [DISK/MEDIA]   ?scan, FTF, del!, ?flop"
-        echo -e " [SYSTEM]       ?inst, theme, ?work, ?gath, help!"
+        echo -e " [SYSTEM]       ?inst, theme, help!"
         echo -e "${ORANGE}========================================${NC}"
         
         if [ "$active_tasks" -gt 0 ]; then
@@ -122,9 +122,9 @@ except: pass
         echo -e "${WHITE} [ SYSTEM CORE ]${NC}"
         echo -e "  1) Update OS Core      (Fetch latest word@ script)"
         echo -e "  2) Verify Dependencies (ffmpeg, inotify-tools, etc.)"
-        echo -e "\n${WHITE} [ OPTIONAL ADDONS ]${NC}"
+        echo -e "\n${WHITE} [ OPTIONAL SOFTWARE ]${NC}"
         
-       [ -f "$ADDON_DIR/word_ascii.py" ] && echo -e "  3) ASCII Video Engine      ${GREEN}[INSTALLED]${NC}" || echo -e "  3) ASCII Video Engine      ${RED}[MISSING]${NC}"
+        [ -f "$ADDON_DIR/word_ascii.py" ] && echo -e "  3) ASCII Video Engine      ${GREEN}[INSTALLED]${NC}" || echo -e "  3) ASCII Video Engine      ${RED}[MISSING]${NC}"
         [ -f "$ADDON_DIR/word_launcher.sh" ] && echo -e "  4) Software Launcher (run) ${GREEN}[INSTALLED]${NC}" || echo -e "  4) Software Launcher (run) ${RED}[MISSING]${NC}"
         [ -f "$ADDON_DIR/word_math.py" ] && echo -e "  5) Math Engine (?calc)     ${GREEN}[INSTALLED]${NC}" || echo -e "  5) Math Engine (?calc)     ${RED}[MISSING]${NC}"
         
@@ -134,7 +134,7 @@ except: pass
         case "$inst_choice" in
             1)
                 echo -e "${WHITE}Fetching latest OS Core from GitHub...${NC}"
-                if sudo curl -sL "https://raw.githubusercontent.com/cutypander/word_at/main/word@" -o /usr/local/bin/word@; then
+                if sudo curl -sL "https://raw.githubusercontent.com/cutypander/word_at/main/word@?$(date +%s)" -o /usr/local/bin/word@; then
                     sudo chmod +x /usr/local/bin/word@
                     echo -e "${GREEN}OS Core successfully updated! Restart word@ to apply changes.${NC}"
                 else
@@ -149,7 +149,7 @@ except: pass
                 press_enter ;;
             3)
                 echo -e "${WHITE}Downloading ASCII Video Engine...${NC}"
-                if curl -sL "https://raw.githubusercontent.com/cutypander/word_at/main/word_ascii.py" -o "$ADDON_DIR/word_ascii.py"; then
+                if curl -sL "https://raw.githubusercontent.com/cutypander/word_at/main/word_ascii.py?$(date +%s)" -o "$ADDON_DIR/word_ascii.py"; then
                     echo -e "${GREEN}ASCII Video Engine installed!${NC}"
                 else
                     echo -e "${RED}Download failed.${NC}"
@@ -157,7 +157,7 @@ except: pass
                 press_enter ;;
             4)
                 echo -e "${WHITE}Downloading Software Launcher...${NC}"
-                if curl -sL "https://raw.githubusercontent.com/cutypander/word_at/main/word_launcher.sh" -o "$ADDON_DIR/word_launcher.sh"; then
+                if curl -sL "https://raw.githubusercontent.com/cutypander/word_at/main/word_launcher.sh?$(date +%s)" -o "$ADDON_DIR/word_launcher.sh"; then
                     chmod +x "$ADDON_DIR/word_launcher.sh"
                     echo -e "${GREEN}Software Launcher installed!${NC}"
                 else
@@ -166,7 +166,7 @@ except: pass
                 press_enter ;;
             5)
                 echo -e "${WHITE}Downloading Math Engine...${NC}"
-                if curl -sL "https://raw.githubusercontent.com/cutypander/word_at/main/word_math.py" -o "$ADDON_DIR/word_math.py"; then
+                if curl -sL "https://raw.githubusercontent.com/cutypander/word_at/main/word_math.py?$(date +%s)" -o "$ADDON_DIR/word_math.py"; then
                     echo -e "${GREEN}Math Engine installed!${NC}"
                 else
                     echo -e "${RED}Download failed.${NC}"
@@ -174,6 +174,40 @@ except: pass
                 press_enter ;;
             *) ;;
         esac
+        exit 0
+        ;;
+
+    "help!")
+        clear
+        echo -e "${ORANGE}========================================${NC}"
+        echo -e "${WHITE} word@ SYSTEM MANUAL${NC}"
+        echo -e "${ORANGE}========================================${NC}"
+        echo -e "${GREEN} [ PRODUCTIVITY ]${NC}"
+        echo -e "  write [name] : Standard text editor (Nano/GUI)."
+        echo -e "  raw [name]   : Distraction-free logger with inline math."
+        echo -e "                 (Type 'pyth! [ 2+2 ] ?' inside the file to calculate)."
+        
+        echo -e "\n${GREEN} [ MEDIA & HARDWARE ]${NC}"
+        echo -e "  view         : Open media viewer (Audio, Video, ASCII)."
+        echo -e "  ?rec         : Record audio/video directly to Bank."
+        
+        echo -e "\n${GREEN} [ DISK MANAGEMENT ]${NC}"
+        echo -e "  ?scan        : Find and mount external USB/Floppy drives."
+        echo -e "  FTF          : File-To-Floppy. Compress and transfer banks."
+        echo -e "  ?flop        : Initialize virtual floppy emulation."
+        echo -e "  del!         : Secure deletion and disk formatting."
+        
+        echo -e "\n${GREEN} [ SYSTEM CORE ]${NC}"
+        echo -e "  ?inst        : Open the App Store to download Addons & Updates."
+        echo -e "  theme        : Toggle pure black terminal background globally."
+        
+        echo -e "\n${GREEN} [ OPTIONAL SOFTWARE (Run ?inst) ]${NC}"
+        echo -e "  run          : Open the Software Launcher (Games/Tools)."
+        echo -e "  ?calc        : Launch the Interactive Scratchpad Math Engine."
+        echo -e "${ORANGE}========================================${NC}"
+        press_enter
+        exit 0
+        ;;
 
     "theme")
         if grep -q "word_bg_override" "$HOME/.bashrc"; then
@@ -187,39 +221,6 @@ except: pass
         fi
         exit 0
         ;;
-
-   "help!")
-           clear
-           echo -e "${ORANGE}========================================${NC}"
-           echo -e "${WHITE} word@ SYSTEM MANUAL${NC}"
-           echo -e "${ORANGE}========================================${NC}"
-           echo -e "${GREEN} [ PRODUCTIVITY ]${NC}"
-           echo -e "  write [name] : Standard text editor (Nano/GUI)."
-           echo -e "  raw [name]   : Distraction-free logger with inline math."
-           echo -e "                 (Type 'pyth! [ 2+2 ] ?' inside the file to calculate)."
-        
-           echo -e "\n${GREEN} [ MEDIA & HARDWARE ]${NC}"
-           echo -e "  view         : Open media viewer (Audio, Video, ASCII)."
-           echo -e "  ?rec         : Record audio/video directly to Bank."
-        
-           echo -e "\n${GREEN} [ DISK MANAGEMENT ]${NC}"
-           echo -e "  ?scan        : Find and mount external USB/Floppy drives."
-           echo -e "  FTF          : File-To-Floppy. Compress and transfer banks."
-           echo -e "  ?flop        : Initialize virtual floppy emulation."
-           echo -e "  del!         : Secure deletion and disk formatting."
-        
-           echo -e "\n${GREEN} [ SYSTEM CORE ]${NC}"
-           echo -e "  ?inst        : Open the App Store to download Addons & Updates."
-           echo -e "  theme        : Toggle pure black terminal background globally."
-           echo -e "  ?work / ?gath: System diagnostics, bank weight, and network health."
-        
-           echo -e "\n${GREEN} [ OPTIONAL SOFTWARE (Run ?inst) ]${NC}"
-           echo -e "  run          : Open the Software Launcher (Games/Tools)."
-           echo -e "  ?calc        : Launch the Interactive Scratchpad Math Engine."
-           echo -e "${ORANGE}========================================${NC}"
-         press_enter
-       exit 0
-       ;;
 
     "write"|"raw")
         if [ "$1" == "write" ]; then
@@ -303,8 +304,7 @@ except: pass
         exit 0
         ;;
 
-"run"|"?calc")
-        # Dynamic Addon Router
+    "run"|"?calc")
         if [ "$1" == "run" ] && [ -f "$ADDON_DIR/word_launcher.sh" ]; then
             bash "$ADDON_DIR/word_launcher.sh"
         elif [ "$1" == "?calc" ] && [ -f "$ADDON_DIR/word_math.py" ]; then
@@ -315,13 +315,16 @@ except: pass
         exit 0
         ;;
 
-    "?scan"|"del!"|"?flop"|"?rec"|"FTF")
-        # To keep this script tiny, I am omitting the 300 lines of FTF and Burn protocols 
-        # from this code block. In your final GitHub script, this is where you'd paste
-        # those specific bash functions from our previous working version.
-        echo -e "${WHITE}Executing $1...${NC}"
+    "?scan"|"del!"|"?flop"|"?rec"|"FTF"|"?work"|"?gath")
+        # ---------------------------------------------------------
+        # This is where your custom hardware/disk logic lives.
+        # Paste your existing FTF, Burn, and Scan functions directly 
+        # below this line before you push to GitHub next time!
+        # ---------------------------------------------------------
+        echo -e "${WHITE}Executing $1 module...${NC}"
         ;;
+        
     *)
-        echo -e "${RED}Unknown command.${NC}"
+        echo -e "${RED}Unknown command. Type 'word@ help!' for the manual.${NC}"
         ;;
 esac
