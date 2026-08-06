@@ -145,7 +145,7 @@ except: pass
             2)
                 echo -e "${WHITE}Installing OS packages...${NC}"
                 sudo apt-get update -qq
-                sudo apt-get install -y python3 curl ffmpeg mpg123 alsa-utils inotify-tools dosfstools imagemagick python3-opencv v4l-utils w3m ddgr
+                sudo apt-get install -y python3 curl ffmpeg mpg123 alsa-utils inotify-tools dosfstools imagemagick python3-opencv v4l-utils w3m ddgr mpv
                 # Note: 'tuir' and 'wikit' usually require npm/pip, so you may need to install them manually via 'pip3 install tuir' and 'sudo npm i -g wikit' if apt-get doesn't catch them.
                 echo -e "${GREEN}Dependencies met.${NC}"
                 press_enter ;;
