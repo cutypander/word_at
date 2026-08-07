@@ -114,23 +114,24 @@ except: pass
         done
         ;;
 
-    "?inst")
+"?inst")
         clear
         echo -e "${ORANGE}========================================${NC}"
         echo -e "${WHITE} PACKAGE MANAGER & APP STORE${NC}"
         echo -e "${ORANGE}========================================${NC}"
         echo -e "${WHITE} [ SYSTEM CORE ]${NC}"
         echo -e "  1) Update OS Core      (Fetch latest word@ script)"
-        echo -e "  2) Verify Dependencies (ffmpeg, w3m, ddgr, etc.)"
+        echo -e "  2) Verify Dependencies (ffmpeg, w3m, mpv, etc.)"
         echo -e "\n${WHITE} [ OPTIONAL SOFTWARE ]${NC}"
         
         [ -f "$ADDON_DIR/word_ascii.py" ] && echo -e "  3) ASCII Video Engine      ${GREEN}[INSTALLED]${NC}" || echo -e "  3) ASCII Video Engine      ${RED}[MISSING]${NC}"
         [ -f "$ADDON_DIR/word_launcher.sh" ] && echo -e "  4) Software Launcher (run) ${GREEN}[INSTALLED]${NC}" || echo -e "  4) Software Launcher (run) ${RED}[MISSING]${NC}"
         [ -f "$ADDON_DIR/word_math.py" ] && echo -e "  5) Math Engine (?calc)     ${GREEN}[INSTALLED]${NC}" || echo -e "  5) Math Engine (?calc)     ${RED}[MISSING]${NC}"
         [ -f "$ADDON_DIR/word_web.sh" ] && echo -e "  6) Web Gateway (web)       ${GREEN}[INSTALLED]${NC}" || echo -e "  6) Web Gateway (web)       ${RED}[MISSING]${NC}"
+        [ -f "$ADDON_DIR/word_brain.py" ] && echo -e "  7) Neural Core (brain)     ${GREEN}[INSTALLED]${NC}" || echo -e "  7) Neural Core (brain)     ${RED}[MISSING]${NC}"
         
         echo -e "\n  q) Quit"
-        read -p " Select target (1-6): " inst_choice
+        read -p " Select target (1-7): " inst_choice
 
         case "$inst_choice" in
             1)
@@ -145,8 +146,7 @@ except: pass
             2)
                 echo -e "${WHITE}Installing OS packages...${NC}"
                 sudo apt-get update -qq
-                sudo apt-get install -y python3 curl ffmpeg mpg123 alsa-utils inotify-tools dosfstools imagemagick python3-opencv v4l-utils w3m ddgr mpv
-                # Note: 'tuir' and 'wikit' usually require npm/pip, so you may need to install them manually via 'pip3 install tuir' and 'sudo npm i -g wikit' if apt-get doesn't catch them.
+                sudo apt-get install -y python3 curl ffmpeg mpg123 alsa-utils inotify-tools dosfstools imagemagick python3-opencv v4l-utils w3m mpv
                 echo -e "${GREEN}Dependencies met.${NC}"
                 press_enter ;;
             3)
@@ -179,6 +179,14 @@ except: pass
                 if curl -sL "https://raw.githubusercontent.com/cutypander/word_at/main/word_web.sh?$(date +%s)" -o "$ADDON_DIR/word_web.sh"; then
                     chmod +x "$ADDON_DIR/word_web.sh"
                     echo -e "${GREEN}Web Gateway installed!${NC}"
+                else
+                    echo -e "${RED}Download failed.${NC}"
+                fi
+                press_enter ;;
+            7)
+                echo -e "${WHITE}Downloading Neural Core...${NC}"
+                if curl -sL "https://raw.githubusercontent.com/cutypander/word_at/main/word_brain.py?$(date +%s)" -o "$ADDON_DIR/word_brain.py"; then
+                    echo -e "${GREEN}Neural Core installed!${NC}"
                 else
                     echo -e "${RED}Download failed.${NC}"
                 fi
@@ -359,13 +367,15 @@ except: pass
         hypervisor_release
         ;;
 
-    "run"|"?calc"|"web")
+"run"|"?calc"|"web"|"brain")
         if [ "$1" == "run" ] && [ -f "$ADDON_DIR/word_launcher.sh" ]; then
             bash "$ADDON_DIR/word_launcher.sh"
         elif [ "$1" == "?calc" ] && [ -f "$ADDON_DIR/word_math.py" ]; then
             python3 "$ADDON_DIR/word_math.py"
         elif [ "$1" == "web" ] && [ -f "$ADDON_DIR/word_web.sh" ]; then
             bash "$ADDON_DIR/word_web.sh"
+        elif [ "$1" == "brain" ] && [ -f "$ADDON_DIR/word_brain.py" ]; then
+            python3 "$ADDON_DIR/word_brain.py"
         else
             echo -e "${RED}Software missing! Run 'word@ ?inst' to download this feature.${NC}"
         fi
