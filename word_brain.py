@@ -4,7 +4,7 @@ import json
 import random
 
 # ==========================================
-# word@ NEURAL CORE (Hybrid Markov-RNN)
+# word@ NEURAL CORE (Hybrid Markov-RNN v3)
 # ==========================================
 BANK_DIR = os.path.expanduser("~/word_at_bank/text")
 BRAIN_FILE = os.path.expanduser("~/word_at_bank/brain.json")
@@ -18,7 +18,7 @@ NC = '\033[0m'
 
 brain = {"weights": {}, "vocab": {}}
 context_state = {}  
-last_path = [] # Tracks the exact synapses of the last generated thought
+last_path = [] 
 BASE_REWARD = 10
 
 def load_brain():
@@ -36,7 +36,8 @@ def save_brain():
 
 def clean_text(text):
     text = text.lower()
-    text = re.sub(r'([.?!,])', r' \1 ', text)
+    # Separate punctuation so the engine can map it, but keep structure intact
+    text = re.sub(r'([.?!,()\[\]"”’])', r' \1 ', text)
     return text.split()
 
 def ingest_knowledge():
@@ -73,7 +74,7 @@ def apply_reward(multiplier=1):
             if new_weight <= 0:
                 del brain["weights"][key][target]
             else:
-                brain["weights"][key][target] = min(new_weight, 255) # Cap at 255
+                brain["weights"][key][target] = min(new_weight, 255)
     save_brain()
     return True
 
@@ -84,32 +85,29 @@ def generate_thought(prompt, is_loop=False):
     if len(words) < 2 and not is_loop:
         return "I need more context."
 
-    # Update RNN hidden state
+    # Update RNN hidden state (The Neural Context)
     for k in list(context_state.keys()):
         context_state[k] *= 0.5
         if context_state[k] < 0.1:
             del context_state[k]
     for w in words:
-        if w not in ['.', ',', '?', '!', 'the', 'a', 'and', 'to', 'of', 'in']:
+        if w not in ['.', ',', '?', '!', 'the', 'a', 'and', 'to', 'of', 'in', '"', '(', ')']:
             context_state[w] = context_state.get(w, 0) + 1.0
 
-    # Determine starting synapse
     if len(words) >= 2:
         w1, w2 = words[-2], words[-1]
     else:
         w1, w2 = random.choice(list(brain["weights"].keys())).split("::")
 
     response = []
-    for _ in range(30):
+    for _ in range(40): # Slightly longer max length
         key = f"{w1}::{w2}"
         
-        # Dead-end Fallback Logic
         if key not in brain["weights"] or not brain["weights"][key]:
             fallbacks = [k for k in brain["weights"] if k.startswith(f"{w2}::")]
             if fallbacks:
                 key = random.choice(fallbacks)
             else:
-                # Total fallback based on context state
                 if context_state:
                     top_context = max(context_state, key=context_state.get)
                     context_keys = [k for k in brain["weights"] if top_context in k]
@@ -122,31 +120,56 @@ def generate_thought(prompt, is_loop=False):
         choices = list(candidates.keys())
         base_weights = list(candidates.values())
         
-        # Apply context dopamine
+        # Apply contextual dopamine to weight selection
         adj_weights = []
         for i, choice in enumerate(choices):
             weight = base_weights[i]
             if choice in context_state:
-                weight += int(context_state[choice] * 5)
+                weight += int(context_state[choice] * 10) # Heavily favor context
             adj_weights.append(weight)
             
         next_word = random.choices(choices, weights=adj_weights, k=1)[0]
         last_path.append((key, next_word))
         
-        # Don't let it just output a single period and give up
-        if next_word in ['.', '?', '!'] and len(response) < 3:
+        if next_word in ['.', '?', '!'] and len(response) < 5:
             w1, w2 = w2, next_word
             continue
 
         response.append(next_word)
-        if next_word in ['.', '?', '!'] and len(response) >= 3:
+        if next_word in ['.', '?', '!'] and len(response) >= 5:
             break
             
         w1, w2 = w2, next_word
 
     out = " ".join(response)
-    out = re.sub(r'\s+([.?!,])', r'\1', out)
+    # Clean up spacing around punctuation
+    out = re.sub(r'\s+([.?!,\])])', r'\1', out)
+    out = re.sub(r'([\[(])\s+', r'\1', out)
     return out.capitalize()
+
+def judge_thought(thought):
+    """The Neural Critic: Evaluates grammar, structure, and context."""
+    words = thought.split()
+    score = 5 # Base score
+    
+    # 1. Structural Length & Repetition
+    if len(words) < 6: 
+        score -= 3
+    if len(set(words)) < len(words) * 0.6: 
+        score -= 4 # Severe penalty for repeating words
+        
+    # 2. Syntax & Punctuation Integrity
+    for punct in ['"', '”', '’', '(', ')', '[', ']']:
+        if thought.count(punct) % 2 != 0:
+            score -= 5 # Massive penalty for orphaned brackets/quotes
+            
+    # 3. Contextual Coherence (Does it stay on topic?)
+    if context_state:
+        context_matches = sum(1 for w in words if w in context_state)
+        if context_matches == 0:
+            score -= 3 # Penalty for completely ignoring the hidden state
+            
+    return score
 
 def run_critic_loop(cycles):
     print(f"\n{CYAN}[System] Initiating Adversarial Critic Loop for {cycles} cycles...{NC}")
@@ -155,17 +178,14 @@ def run_critic_loop(cycles):
 
     for i in range(cycles):
         thought = generate_thought(prompt, is_loop=True)
-        words = thought.split()
         
-        # Simple Critic Rules
-        score = 1
-        if len(words) < 4: score = -1
-        if len(set(words)) < len(words) // 2: score = -2 # Repetition penalty
+        # Pass to the new ruthless Critic
+        score = judge_thought(thought)
         
         if score > 0:
             approved += 1
             apply_reward(1)
-            prompt = words[-1] # Feed the end of the thought into the next prompt
+            prompt = thought.split()[-1] # Feed end of thought into next prompt
             print(f" Cycle {i+1}: {GREEN}[APPROVED]{NC} {thought}")
         else:
             rejected += 1
@@ -179,7 +199,7 @@ def run_critic_loop(cycles):
 # ==========================================
 load_brain()
 print(f"{ORANGE}========================================{NC}")
-print(f"{WHITE} word@ NEURAL CORE (Hybrid Model v2){NC}")
+print(f"{WHITE} word@ NEURAL CORE (Hybrid Model v3){NC}")
 print(f"{ORANGE}========================================{NC}")
 print(f" Commands:")
 print(f"  {WHITE}\\learn{NC}     : Train network on text files.")
