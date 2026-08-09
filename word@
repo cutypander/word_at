@@ -129,9 +129,10 @@ except: pass
         [ -f "$ADDON_DIR/word_math.py" ] && echo -e "  5) Math Engine (?calc)     ${GREEN}[INSTALLED]${NC}" || echo -e "  5) Math Engine (?calc)     ${RED}[MISSING]${NC}"
         [ -f "$ADDON_DIR/word_web.sh" ] && echo -e "  6) Web Gateway (web)       ${GREEN}[INSTALLED]${NC}" || echo -e "  6) Web Gateway (web)       ${RED}[MISSING]${NC}"
         [ -f "$ADDON_DIR/word_brain.py" ] && echo -e "  7) Neural Core (brain)     ${GREEN}[INSTALLED]${NC}" || echo -e "  7) Neural Core (brain)     ${RED}[MISSING]${NC}"
+        [ -f "$ADDON_DIR/word_game.py" ] && echo -e "  8) Sandbox Engine (terr@)  ${GREEN}[INSTALLED]${NC}" || echo -e "  8) Sandbox Engine (terr@)  ${RED}[MISSING]${NC}"
         
         echo -e "\n  q) Quit"
-        read -p " Select target (1-7): " inst_choice
+        read -p " Select target (1-8): " inst_choice
 
         case "$inst_choice" in
             1)
@@ -187,6 +188,14 @@ except: pass
                 echo -e "${WHITE}Downloading Neural Core...${NC}"
                 if curl -sL "https://raw.githubusercontent.com/cutypander/word_at/main/word_brain.py?$(date +%s)" -o "$ADDON_DIR/word_brain.py"; then
                     echo -e "${GREEN}Neural Core installed!${NC}"
+                else
+                    echo -e "${RED}Download failed.${NC}"
+                fi
+                press_enter ;;
+            8)
+                echo -e "${WHITE}Downloading terr@...${NC}"
+                if curl -sL "https://raw.githubusercontent.com/cutypander/word_at/main/word_game.py?$(date +%s)" -o "$ADDON_DIR/word_game.py"; then
+                    echo -e "${GREEN}terr@ installed!${NC}"
                 else
                     echo -e "${RED}Download failed.${NC}"
                 fi
@@ -367,7 +376,7 @@ except: pass
         hypervisor_release
         ;;
 
-"run"|"?calc"|"web"|"brain")
+"run"|"?calc"|"web"|"brain"|"terr@")
         if [ "$1" == "run" ] && [ -f "$ADDON_DIR/word_launcher.sh" ]; then
             bash "$ADDON_DIR/word_launcher.sh"
         elif [ "$1" == "?calc" ] && [ -f "$ADDON_DIR/word_math.py" ]; then
@@ -376,6 +385,8 @@ except: pass
             bash "$ADDON_DIR/word_web.sh"
         elif [ "$1" == "brain" ] && [ -f "$ADDON_DIR/word_brain.py" ]; then
             python3 "$ADDON_DIR/word_brain.py"
+        elif [ "$1" == "terr@" ] && [ -f "$ADDON_DIR/word_game.py" ]; then
+            python3 "$ADDON_DIR/word_game.py"
         else
             echo -e "${RED}Software missing! Run 'word@ ?inst' to download this feature.${NC}"
         fi
