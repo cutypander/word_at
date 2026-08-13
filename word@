@@ -537,16 +537,16 @@ except: pass
                     
                     OUT_NAME=$(basename "$enc_file" | cut -d. -f1)
                     
-                    if [ "$enc_choice" == "1" ]; then
-                        echo -e "${WHITE}Modulating image into SSTV frequencies (Martin1)...${NC}"
-                        if command -v sstv >/dev/null 2>&1 || python3 -m sstv -h >/dev/null 2>&1; then
+                        if [ "$enc_choice" == "1" ]; then
+                        echo -e "${WHITE}Modulating image into SSTV frequencies (MartinM1)...${NC}"
+                        if command -v pysstv >/dev/null 2>&1 || python3 -m pysstv -h >/dev/null 2>&1; then
                             # ImageMagick forces everything into a standardized temp jpg to prevent format errors
                             convert "$enc_file" -resize 320x256\! /tmp/sstv_temp.jpg
-                            python3 -m sstv --mode Martin1 /tmp/sstv_temp.jpg "$BANK_DIR/audio/${OUT_NAME}_sstv.wav"
+                            python3 -m pysstv --mode MartinM1 /tmp/sstv_temp.jpg "$BANK_DIR/audio/${OUT_NAME}_sstv.wav"
                             rm -f /tmp/sstv_temp.jpg
                             echo -e "${GREEN}Encoded to $BANK_DIR/audio/${OUT_NAME}_sstv.wav${NC}"
                         else
-                            echo -e "${RED}[ERROR] Python sstv missing. Run '?inst' Option 2.${NC}"
+                            echo -e "${RED}[ERROR] Python pySSTV missing. Run '?inst' Option 2.${NC}"
                         fi
                     elif [ "$enc_choice" == "2" ]; then
                         echo -e "${WHITE}Modulating text into audio frequencies...${NC}"
