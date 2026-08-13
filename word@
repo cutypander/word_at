@@ -146,12 +146,17 @@ except: pass
                 press_enter ;;
             2)
                 echo -e "${WHITE}Installing OS packages...${NC}"
-                sudo apt-get update -qq
-                # Added python3-pip to the apt-get list
+                # Removed -qq so we can see if it actually updates
+                sudo apt-get update
+                
+                # Running the install loud
                 sudo apt-get install -y python3 curl ffmpeg mpg123 alsa-utils inotify-tools dosfstools imagemagick python3-opencv v4l-utils w3m mpv minimodem python3-pil python3-pip
-                # Now pip3 actually exists to run this command
-                pip3 install pySSTV --break-system-packages 2>/dev/null || pip install pySSTV
-                echo -e "${GREEN}Dependencies met.${NC}"
+                
+                echo -e "${WHITE}Fetching pySSTV via pip...${NC}"
+                # Removed the void redirect so pip tells us exactly why it's failing
+                pip3 install pySSTV --break-system-packages
+                
+                echo -e "${GREEN}Process finished. Check the text above for any raw errors.${NC}"
                 press_enter ;;
             3)
                 echo -e "${WHITE}Downloading ASCII Video Engine...${NC}"
