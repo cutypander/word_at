@@ -64,14 +64,14 @@ hypervisor_release() {
 # ==========================================
 case "$1" in
 
-    "")
+"")
         active_tasks=$(ls -1q "$TASK_DIR" 2>/dev/null | wc -l)
         clear
         echo -e "${ORANGE}========================================${NC}"
         echo -e "${WHITE} word@ SYSTEM KERNEL (v$KERNEL_VERSION)${NC}"
         echo -e "${ORANGE}========================================${NC}"
         echo -e " [PRODUCTIVITY] write, raw"
-        echo -e " [MEDIA/HW]     ?rec, view"
+        echo -e " [MEDIA/HW]     ?rec, view, ?encode, ?decode"
         echo -e " [DISK/MEDIA]   ?scan, FTF, del!, ?flop"
         echo -e " [SYSTEM]       ?inst, theme, help!"
         echo -e "${ORANGE}========================================${NC}"
@@ -147,7 +147,8 @@ except: pass
             2)
                 echo -e "${WHITE}Installing OS packages...${NC}"
                 sudo apt-get update -qq
-                sudo apt-get install -y python3 curl ffmpeg mpg123 alsa-utils inotify-tools dosfstools imagemagick python3-opencv v4l-utils w3m mpv
+                sudo apt-get install -y python3 curl ffmpeg mpg123 alsa-utils inotify-tools dosfstools imagemagick python3-opencv v4l-utils w3m mpv minimodem
+                pip3 install sstv --break-system-packages 2>/dev/null || pip install sstv
                 echo -e "${GREEN}Dependencies met.${NC}"
                 press_enter ;;
             3)
@@ -213,11 +214,12 @@ except: pass
         echo -e "${GREEN} [ PRODUCTIVITY ]${NC}"
         echo -e "  write [name] : Standard text editor (Nano/GUI)."
         echo -e "  raw [name]   : Distraction-free logger with inline math."
-        echo -e "                 (Type 'pyth! [ 2+2 ] ?' inside the file to calculate)."
         
         echo -e "\n${GREEN} [ MEDIA & HARDWARE ]${NC}"
         echo -e "  view         : Open media viewer (Audio, Video, ASCII)."
         echo -e "  ?rec         : Record audio/video directly to Bank."
+        echo -e "  ?encode      : Convert formats (Image->SSTV, Text->Audio, File->Base64)."
+        echo -e "  ?decode      : Recover files from acoustic or cipher formats."
         
         echo -e "\n${GREEN} [ DISK MANAGEMENT ]${NC}"
         echo -e "  ?scan        : Find and mount external USB/Floppy drives."
@@ -228,11 +230,6 @@ except: pass
         echo -e "\n${GREEN} [ SYSTEM CORE ]${NC}"
         echo -e "  ?inst        : Open the App Store to download Addons & Updates."
         echo -e "  theme        : Toggle pure black terminal background globally."
-        
-        echo -e "\n${GREEN} [ OPTIONAL SOFTWARE (Run ?inst) ]${NC}"
-        echo -e "  run          : Open the Software Launcher (Games/Tools)."
-        echo -e "  ?calc        : Launch the Interactive Scratchpad Math Engine."
-        echo -e "  web          : Launch the 3-in-1 Terminal Web Interface."
         echo -e "${ORANGE}========================================${NC}"
         press_enter
         exit 0
@@ -405,7 +402,7 @@ except: pass
         exit 0
         ;;
 
-"?scan"|"del!"|"?flop"|"?rec"|"FTF"|"?work"|"?gath"|"encode!"|"decode!")
+"?scan"|"del!"|"?flop"|"?rec"|"FTF"|"?work"|"?gath"|"?encode"|"?decode")
         # ---------------------------------------------------------
         # THE HARDWARE, MEDIA & ENCODING BLOCK
         # ---------------------------------------------------------
@@ -492,38 +489,75 @@ except: pass
                 press_enter
                 ;;
                 
-            "encode!")
+            "?encode")
                 clear
                 echo -e "${ORANGE}========================================${NC}"
-                echo -e "${WHITE} CROSS-FORMAT ENCODING${NC}"
+                echo -e "${WHITE} CROSS-FORMAT ENCODING ENGINE${NC}"
                 echo -e "${ORANGE}========================================${NC}"
-                echo -e " 1) Image -> Audio Waveform (SSTV style)"
-                echo -e " 2) Text -> Cipher Data"
-                read -p " Select Mode: " enc_choice
-                read -p " Target File: " enc_file
+                echo -e " 1) Image (.jpg/.png) -> SSTV Audio Waveform (.wav)"
+                echo -e " 2) Text/Data (.txt)  -> Acoustic Modem Audio (.wav)"
+                echo -e " 3) Any File          -> Base64 Text Cipher (.txt)"
+                read -p " Select Mode (1-3): " enc_choice
+                read -p " Enter full path to source file: " enc_file
+                
+                if [ ! -f "$enc_file" ]; then echo -e "${RED}File not found.${NC}"; exit 1; fi
+                OUT_NAME=$(basename "$enc_file" | cut -d. -f1)
                 
                 if [ "$enc_choice" == "1" ]; then
-                    echo -e "${WHITE}Modulating image into acoustic frequencies...${NC}"
-                    # This relies on your system having a tool like pisstv or an FFmpeg filter.
-                    # Stubbed out the system call to ensure it safely routes the file.
-                    sleep 2
-                    echo -e "${GREEN}Image encoded to $BANK_DIR/audio/transmission.wav${NC}"
+                    echo -e "${WHITE}Modulating image into SSTV frequencies (Martin1)...${NC}"
+                    if command -v sstv >/dev/null 2>&1 || python3 -m sstv -h >/dev/null 2>&1; then
+                        # Resize for SSTV compatibility before transmitting
+                        convert "$enc_file" -resize 320x256! /tmp/sstv_temp.jpg
+                        python3 -m sstv --mode Martin1 /tmp/sstv_temp.jpg "$BANK_DIR/audio/${OUT_NAME}_sstv.wav"
+                        rm /tmp/sstv_temp.jpg
+                        echo -e "${GREEN}Encoded to $BANK_DIR/audio/${OUT_NAME}_sstv.wav${NC}"
+                    else
+                        echo -e "${RED}[ERROR] Python sstv missing. Run '?inst' Option 2.${NC}"
+                    fi
+                elif [ "$enc_choice" == "2" ]; then
+                    echo -e "${WHITE}Modulating text into audio frequencies...${NC}"
+                    if command -v minimodem >/dev/null 2>&1; then
+                        minimodem --tx -f "$BANK_DIR/audio/${OUT_NAME}_modem.wav" rtty < "$enc_file"
+                        echo -e "${GREEN}Encoded to $BANK_DIR/audio/${OUT_NAME}_modem.wav${NC}"
+                    else
+                        echo -e "${RED}[ERROR] 'minimodem' missing. Run '?inst' Option 2.${NC}"
+                    fi
+                elif [ "$enc_choice" == "3" ]; then
+                    echo -e "${WHITE}Converting to Base64 Cipher...${NC}"
+                    base64 "$enc_file" > "$BANK_DIR/text/${OUT_NAME}_cipher.txt"
+                    echo -e "${GREEN}Encoded to $BANK_DIR/text/${OUT_NAME}_cipher.txt${NC}"
                 fi
                 press_enter
                 ;;
                 
-            "decode!")
+            "?decode")
                 clear
                 echo -e "${ORANGE}========================================${NC}"
-                echo -e "${WHITE} CROSS-FORMAT DECODING${NC}"
+                echo -e "${WHITE} CROSS-FORMAT DECODING ENGINE${NC}"
                 echo -e "${ORANGE}========================================${NC}"
-                echo -e " 1) Audio Waveform -> Image Data"
-                read -p " Select Mode: " dec_choice
-                read -p " Target File: " dec_file
+                echo -e " 1) Acoustic Modem Audio (.wav) -> Text/Data (.txt)"
+                echo -e " 2) Base64 Text Cipher (.txt)   -> Original File"
+                echo -e " Note: SSTV Rx (.wav -> Image) requires specialized CLI SDR tools or GUI (qsstv)."
+                read -p " Select Mode (1-2): " dec_choice
+                read -p " Enter full path to source file: " dec_file
                 
-                echo -e "${WHITE}Processing acoustic data for image retrieval...${NC}"
-                sleep 2
-                echo -e "${GREEN}Data recovered.${NC}"
+                if [ ! -f "$dec_file" ]; then echo -e "${RED}File not found.${NC}"; exit 1; fi
+                OUT_NAME=$(basename "$dec_file" | cut -d. -f1)
+                
+                if [ "$dec_choice" == "1" ]; then
+                    echo -e "${WHITE}Demodulating acoustic data...${NC}"
+                    if command -v minimodem >/dev/null 2>&1; then
+                        minimodem --rx -f "$dec_file" rtty > "$BANK_DIR/text/${OUT_NAME}_decoded.txt"
+                        echo -e "${GREEN}Decoded to $BANK_DIR/text/${OUT_NAME}_decoded.txt${NC}"
+                    else
+                         echo -e "${RED}[ERROR] 'minimodem' missing. Run '?inst' Option 2.${NC}"
+                    fi
+                elif [ "$dec_choice" == "2" ]; then
+                    echo -e "${WHITE}Decoding Base64 Cipher...${NC}"
+                    read -p " Enter original file extension (e.g., jpg, mp4, txt): " ext
+                    base64 -d "$dec_file" > "$BANK_DIR/text/${OUT_NAME}_decoded.$ext"
+                    echo -e "${GREEN}Decoded to $BANK_DIR/text/${OUT_NAME}_decoded.$ext${NC}"
+                fi
                 press_enter
                 ;;
                 
