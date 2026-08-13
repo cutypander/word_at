@@ -147,8 +147,8 @@ except: pass
             2)
                 echo -e "${WHITE}Installing OS packages...${NC}"
                 sudo apt-get update -qq
-                sudo apt-get install -y python3 curl ffmpeg mpg123 alsa-utils inotify-tools dosfstools imagemagick python3-opencv v4l-utils w3m mpv minimodem
-                pip3 install sstv --break-system-packages 2>/dev/null || pip install sstv
+                sudo apt-get install -y python3 curl ffmpeg mpg123 alsa-utils inotify-tools dosfstools imagemagick python3-opencv v4l-utils w3m mpv minimodem python3-pil
+                pip3 install pySSTV --break-system-packages 2>/dev/null || pip install pySSTV
                 echo -e "${GREEN}Dependencies met.${NC}"
                 press_enter ;;
             3)
