@@ -146,14 +146,12 @@ except: pass
                 press_enter ;;
             2)
                 echo -e "${WHITE}Installing OS packages...${NC}"
-                # Removed -qq so we can see if it actually updates
                 sudo apt-get update
                 
-                # Running the install loud
-                sudo apt-get install -y python3 curl ffmpeg mpg123 alsa-utils inotify-tools dosfstools imagemagick python3-opencv v4l-utils w3m mpv minimodem python3-pil python3-pip
+                # Added 'mousepad' to the very end of the install list
+                sudo apt-get install -y python3 curl ffmpeg mpg123 alsa-utils inotify-tools dosfstools imagemagick python3-opencv v4l-utils w3m mpv minimodem python3-pil python3-pip mousepad
                 
                 echo -e "${WHITE}Fetching pySSTV via pip...${NC}"
-                # Removed the void redirect so pip tells us exactly why it's failing
                 pip3 install pySSTV --break-system-packages
                 
                 echo -e "${GREEN}Process finished. Check the text above for any raw errors.${NC}"
@@ -255,14 +253,20 @@ except: pass
         exit 0
         ;;
 
-    "write"|"raw")
+        "write"|"raw")
         if [ "$1" == "write" ]; then
             [ -n "$2" ] && filename="$2" || read -p "Enter document name: " filename
             filepath="$BANK_DIR/text/$filename.txt"
             touch "$filepath"
-            if [ -n "$DISPLAY" ] && command -v xdg-open >/dev/null 2>&1; then xdg-open "$filepath" 2>/dev/null || nano "$filepath"
-            else nano "$filepath"; fi
-        else
+            
+            # If a graphical display is detected, launch Mousepad and wait.
+            if [ -n "$DISPLAY" ] && command -v mousepad >/dev/null 2>&1; then
+                mousepad "$filepath" 2>/dev/null
+            else
+                # Fallback to nano if no GUI is available
+                nano "$filepath"
+            fi
+            else
             [ -n "$2" ] && filename="$2" || read -p "Enter document name: " filename
             TEMP_FILE="$BANK_DIR/text/.$filename.tmp"
             FINAL_FILE="$BANK_DIR/text/$filename.txt"
