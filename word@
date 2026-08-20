@@ -413,32 +413,125 @@ except: pass
         exit 0
         ;;
 
-"?scan"|"del!"|"?flop"|"?rec"|"FTF"|"?work"|"?gath"|"?encode"|"?decode")
-        # ---------------------------------------------------------
-        # THE HARDWARE, MEDIA & ENCODING BLOCK
-        # ---------------------------------------------------------
-        case "$1" in
-            "?scan")
+"?scan")
                 clear
                 echo -e "${ORANGE}========================================${NC}"
                 echo -e "${WHITE} PHYSICAL MEDIA SCANNER${NC}"
                 echo -e "${ORANGE}========================================${NC}"
                 
-                # Simplified check for standard fd0 or USB floppy (sdX)
                 FLOPPY_DEV=$(lsblk -ndo NAME,TYPE | awk '$2=="disk" {print $1}' | grep -E "fd0|sd[b-z]" | head -n 1)
                 
                 if [ -z "$FLOPPY_DEV" ]; then 
                     echo -e "${RED}[ERROR] No floppy drive detected.${NC}"
                 else
                     echo -e "${GREEN}[OK] Drive detected at /dev/$FLOPPY_DEV.${NC}"
-                    echo -e "${WHITE}Running magnetic sector health check...${NC}"
+                    echo -e "${WHITE}Initializing read head... (Press Ctrl+C to abort)${NC}"
+                    sleep 1
                     
-                    # Non-destructive read test
-                    if sudo badblocks -sv "/dev/$FLOPPY_DEV" -b 512 -c 1 > /dev/null 2>&1; then
-                        echo -e "${GREEN}[HEALTHY] Disk sectors intact.${NC}"
-                        # In the future, we hook this into $LEDGER_FILE with the NATO name
+                    # 1. Start the 60-second soft-warning in the background
+                    (
+                        sleep 60
+                        # Uses ANSI codes to save cursor position, print at the bottom, and restore cursor to avoid UI glitches
+                        echo -ne "\033[s\033[999;1H\n\033[33m[WARNING] Scan exceeding 60s. Magnetic degradation likely. Drive is struggling...\033[0m\033[u"
+                    ) &
+                    WARNING_PID=$!
+                    
+                    # 2. Run the scan wrapped in a hard 120-second kill switch (sudo timeout ensures clean kills)
+                    if [ -f "$ADDON_DIR/word_ascii.py" ]; then
+                        sudo timeout 120 badblocks -sv "/dev/$FLOPPY_DEV" -b 512 -c 32 2>&1 | python3 -c '
+import sys, math
+TOTAL_BLOCKS = 2880 
+cols = 64
+rows = math.ceil(TOTAL_BLOCKS / cols)
+grid = ["·"] * TOTAL_BLOCKS
+
+def draw_grid():
+    sys.stdout.write("\033[H\033[38;5;208m--- FLOPPY MAGNETIC HEALTH MAP ---\033[0m\n\n")
+    for r in range(rows):
+        line = ""
+        for c in range(cols):
+            idx = r * cols + c
+            if idx >= TOTAL_BLOCKS: break
+            char = grid[idx]
+            if char == "·": line += "\033[90m·\033[0m"
+            elif char == "█": line += "\033[32m█\033[0m"
+            elif char == "!": line += "\033[31m!\033[0m"
+        sys.stdout.write(line + "\n")
+    sys.stdout.flush()
+
+sys.stdout.write("\033[2J\033[?25l") 
+try:
+    draw_grid()
+    for line in sys.stdin:
+        line = line.strip()
+        if not line: continue
+        if line.isdigit():
+            block_num = int(line)
+            if block_num < TOTAL_BLOCKS:
+                grid[block_num] = "!"
+                draw_grid()
+        elif "% done" in line:
+            try:
+                pct_str = line.split("%")[0].split()[-1]
+                pct = float(pct_str)
+                current_block = int((pct / 100.0) * TOTAL_BLOCKS)
+                for i in range(current_block):
+                    if i < TOTAL_BLOCKS and grid[i] == "·":
+                        grid[i] = "█"
+                draw_grid()
+            except ValueError: pass
+except KeyboardInterrupt: pass
+finally: sys.stdout.write("\033[?25h\n")
+'
+                        SCAN_EXIT=${PIPESTATUS[0]}
                     else
-                        echo -e "${RED}[WARNING] Bad sectors detected! Media is degrading. Back up immediately.${NC}"
+                        echo -e "${ORANGE}[ASCII Engine Missing] Engaging raw text telemetry...${NC}\n"
+                        sudo timeout 120 badblocks -sv "/dev/$FLOPPY_DEV" -b 512 -c 32 2>&1 | while read -r line; do
+                            if [[ "$line" == *"done, "* ]]; then
+                                pct=$(echo "$line" | grep -o "[0-9]*%")
+                                echo -ne "\r${WHITE}Magnetic Sector Health:${NC} ${GREEN}[${pct} Verified]${NC}\033[K"
+                            elif [[ "$line" =~ ^[0-9]+$ ]]; then
+                                echo -e "\n${RED}[!] CRITICAL: Sector ${line} is dead.${NC}"
+                            fi
+                        done
+                        SCAN_EXIT=${PIPESTATUS[0]}
+                    fi
+                    
+                    # 3. Kill the 60s warning timer if the scan finished early
+                    kill $WARNING_PID 2>/dev/null
+                    
+                    # 4. Evaluate the health and timeout status
+                    echo -e "\n"
+                    if [ $SCAN_EXIT -eq 124 ]; then
+                        echo -e "${RED}====================================================${NC}"
+                        echo -e "${RED}[CRITICAL TIMEOUT] Scan forcibly terminated at 120s.${NC}"
+                        echo -e "${RED}The drive firmware is locked in a retry loop on a dead track.${NC}"
+                        echo -e "${RED}File table corruption is guaranteed. Do not attempt standard mounts.${NC}"
+                        echo -e "${RED}====================================================${NC}"
+                        NEEDS_SCRAPE=true
+                    elif [ $SCAN_EXIT -ne 0 ]; then
+                        echo -e "${RED}[WARNING] Bad sectors detected. Data loss probable.${NC}"
+                        NEEDS_SCRAPE=true
+                    else
+                        echo -e "${GREEN}[HEALTHY] Scan sequence completed successfully.${NC}"
+                        NEEDS_SCRAPE=false
+                    fi
+                    
+                    # 5. The Scraper Utility
+                    if [ "$NEEDS_SCRAPE" = true ]; then
+                        echo -e "\n${WHITE}Would you like to SCRAPE the disk?${NC}"
+                        echo -e "This will bypass the filesystem, force-read the raw magnetic platter,"
+                        echo -e "and dump any surviving human-readable text into a recovery file."
+                        read -p " Scrape disk? (y/n): " scrape_choice
+                        
+                        if [[ "$scrape_choice" == "y" || "$scrape_choice" == "Y" ]]; then
+                            read -p " Enter name for recovery file: " scrape_name
+                            echo -e "${ORANGE}Scraping raw data... Expect grinding noises.${NC}"
+                            
+                            sudo dd if="/dev/$FLOPPY_DEV" bs=512 conv=noerror,sync 2>/dev/null | strings > "$BANK_DIR/text/RECOVER_${scrape_name}.txt"
+                            
+                            echo -e "${GREEN}Scrape complete. Data dumped to $BANK_DIR/text/RECOVER_${scrape_name}.txt${NC}"
+                        fi
                     fi
                 fi
                 press_enter
