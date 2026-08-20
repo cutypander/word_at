@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # ==========================================
-# word@ OS CORE - FEATHERWEIGHT EDITION (v3.2)
+# word@ OS CORE - FEATHERWEIGHT EDITION (v3.3)
 # ==========================================
-KERNEL_VERSION="3.2"
+KERNEL_VERSION="3.3"
 BANK_DIR="$HOME/word_at_bank"
 ADDON_DIR="$HOME/.word_addons"
 LEDGER_FILE="$HOME/.floppy_ledger"
@@ -147,8 +147,6 @@ except: pass
             2)
                 echo -e "${WHITE}Installing OS packages...${NC}"
                 sudo apt-get update
-                
-                # Added 'mousepad' to the very end of the install list
                 sudo apt-get install -y python3 curl ffmpeg mpg123 alsa-utils inotify-tools dosfstools imagemagick python3-opencv v4l-utils w3m mpv minimodem python3-pil python3-pip mousepad
                 
                 echo -e "${WHITE}Fetching pySSTV via pip...${NC}"
@@ -293,7 +291,6 @@ except: pass
 "view")
         hypervisor_lock 3 "Media Viewer"
         if [ -z "$2" ]; then
-            # Added nocaseglob to catch .JPG or .jpg, and expanded the search parameters
             shopt -s nullglob nocaseglob
             media_files=("$BANK_DIR"/video/*.mp4 "$BANK_DIR"/video/*.webm "$BANK_DIR"/audio/*.mp3 "$BANK_DIR"/images/*.jpg "$BANK_DIR"/images/*.jpeg "$BANK_DIR"/images/*.png "$BANK_DIR"/text/*.txt)
             [ -d "$ACTIVE_TARGET" ] && media_files+=("$ACTIVE_TARGET"/*.mp4 "$ACTIVE_TARGET"/*.webm "$ACTIVE_TARGET"/*.mp3 "$ACTIVE_TARGET"/*.jpg "$ACTIVE_TARGET"/*.jpeg "$ACTIVE_TARGET"/*.png "$ACTIVE_TARGET"/*.txt)
@@ -320,12 +317,10 @@ except: pass
             
         elif [[ "$FILE_PATH" == *.txt ]]; then
             echo -e "${WHITE}Reading Text: $target${NC}"
-            # Uses less for clean terminal reading
             less "$FILE_PATH"
             
         elif [[ "$FILE_PATH" == *.jpg || "$FILE_PATH" == *.jpeg || "$FILE_PATH" == *.png ]]; then
             echo -e "${WHITE}Viewing Image: $target${NC}"
-            # Tries terminal image viewers first, falls back to GUI if available
             if command -v chafa >/dev/null 2>&1; then chafa "$FILE_PATH"
             elif command -v catimg >/dev/null 2>&1; then catimg "$FILE_PATH"
             elif [ -n "$DISPLAY" ] && command -v xdg-open >/dev/null 2>&1; then xdg-open "$FILE_PATH" 2>/dev/null
@@ -342,22 +337,18 @@ except: pass
             read -p " Select Mode: " vid_mode
 
             if [[ "$vid_mode" == "1" ]]; then
-                # Standard playback
                 mpv --quiet "$FILE_PATH" >/dev/null 2>&1
             elif [[ "$vid_mode" == "2" ]]; then
                 if [ -f "$ADDON_DIR/word_ascii.py" ]; then
                     SUB_PATH="${FILE_PATH%.*}.txt"
                     
-                    # 1. Spawn audio in the background and freeze it
                     mpv --no-video --quiet "$FILE_PATH" >/dev/null 2>&1 &
                     AUDIO_PID=$!
                     sleep 0.1
                     kill -STOP $AUDIO_PID 2>/dev/null
                     
-                    # 2. Trap for clean exit if you hit Ctrl+C
                     trap 'kill -9 $AUDIO_PID $WATCHER_PID 2>/dev/null; hypervisor_release; exit 0' INT
                     
-                    # 3. Smart Sync 3.0: Process State Tracker (UNTOUCHED)
                     (
                         sleep 0.5
                         PY_PID=$(pgrep -n -f "word_ascii.py")
@@ -381,10 +372,8 @@ except: pass
                     WATCHER_PID=$!
                     disown $WATCHER_PID 2>/dev/null
                     
-                    # 4. Run the visual ASCII engine
                     python3 "$ADDON_DIR/word_ascii.py" "$FILE_PATH" "$SUB_PATH"
                     
-                    # 5. Cleanup silently when finished
                     kill -9 $AUDIO_PID 2>/dev/null
                     kill -9 $WATCHER_PID 2>/dev/null
                     trap - INT
@@ -413,25 +402,29 @@ except: pass
         exit 0
         ;;
 
-"?scan")
+"?scan"|"del!"|"?flop"|"?rec"|"FTF"|"?work"|"?gath"|"?encode"|"?decode")
+        # ---------------------------------------------------------
+        # THE HARDWARE, MEDIA & ENCODING BLOCK
+        # ---------------------------------------------------------
+        case "$1" in
+            "?scan")
                 clear
                 echo -e "${ORANGE}========================================${NC}"
                 echo -e "${WHITE} PHYSICAL MEDIA SCANNER${NC}"
                 echo -e "${ORANGE}========================================${NC}"
                 
-                # 1. PRIME SUDO: Asks for password upfront so the pipeline doesn't collapse
+                # PRIME SUDO FIRST: This asks for your password upfront so the pipeline doesn't collapse
                 sudo -v
                 
-                # 2. LOCATE HARDWARE
                 FLOPPY_DEV=$(lsblk -ndo NAME,TYPE | awk '$2=="disk" {print $1}' | grep -E "fd0|sd[b-z]" | head -n 1)
                 
                 if [ -z "$FLOPPY_DEV" ]; then 
                     echo -e "${RED}[ERROR] No floppy drive detected.${NC}"
                 else
-                    # 3. SAFETY CATCH: Ask OS for exact capacity in bytes
+                    # THE SAFETY CATCH: Ask the OS for the exact capacity of the drive in bytes
                     DRIVE_SIZE=$(lsblk -bndo SIZE "/dev/$FLOPPY_DEV" | tr -d ' ' 2>/dev/null)
                     
-                    # If drive is larger than 2MB (2000000 bytes), abort to protect hard drives
+                    # If the drive is larger than 2,000,000 bytes (2MB), abort immediately
                     if [ -n "$DRIVE_SIZE" ] && [ "$DRIVE_SIZE" -gt 2000000 ]; then
                         echo -e "${RED}[CRITICAL ERROR] Target /dev/$FLOPPY_DEV is too large ($((DRIVE_SIZE / 1048576)) MB).${NC}"
                         echo -e "${RED}Scan aborted to prevent accidental destruction of standard hard drives.${NC}"
@@ -439,13 +432,11 @@ except: pass
                         echo -e "${GREEN}[OK] Drive detected at /dev/$FLOPPY_DEV.${NC}"
                         echo -e "${WHITE}Initializing read head... (Press Ctrl+C to abort)${NC}"
                         
-                        # UI ANCHOR: Saves exact cursor position here
+                        # UI ANCHOR: Saves the exact cursor position right here
                         echo -ne "\033[s" 
                         sleep 1
                         
-                        # 4. THE SCANNER
                         if [ -f "$ADDON_DIR/word_ascii.py" ]; then
-                            # Uses 'python3 -u' for unbuffered, instant terminal rendering
                             sudo timeout 120 badblocks -sv "/dev/$FLOPPY_DEV" -b 512 -c 32 2>&1 | python3 -u - << 'EOF'
 import sys, math, time
 TOTAL_BLOCKS = 2880 
@@ -455,7 +446,7 @@ grid = ["·"] * TOTAL_BLOCKS
 start_time = time.time()
 
 def draw_grid():
-    # Jump to UI anchor and clear below to prevent scrolling gaps
+    # Jumps to the UI anchor and only clears the space below it, preventing the huge gap
     sys.stdout.write("\033[u\033[J") 
     sys.stdout.write("\033[38;5;208m--- FLOPPY MAGNETIC HEALTH MAP ---\033[0m\n\n")
     
@@ -501,7 +492,6 @@ EOF
                             SCAN_EXIT=${PIPESTATUS[0]}
                         else
                             echo -e "${ORANGE}[ASCII Engine Missing] Engaging raw text telemetry...${NC}\n"
-                            # Bash fallback 60s warning
                             (
                                 sleep 60
                                 echo -ne "\033[s\033[999;1H\n\033[33m[WARNING] Scan exceeding 60s. Magnetic degradation likely. Drive is struggling...\033[0m\033[u"
@@ -520,7 +510,6 @@ EOF
                             kill $WARNING_PID 2>/dev/null
                         fi
                         
-                        # 5. DIAGNOSTICS & SCRAPING
                         echo -e "\n"
                         if [ $SCAN_EXIT -eq 124 ]; then
                             echo -e "${RED}====================================================${NC}"
@@ -569,11 +558,9 @@ EOF
                 
                 if [ "$rec_choice" == "1" ]; then
                     echo -e "${RED}[REC] Press Ctrl+C to stop recording.${NC}"
-                    # Aggressive audio compression to ensure it fits on a floppy
                     ffmpeg -f alsa -i default -codec:a libmp3lame -b:a 8k -ar 11025 "$BANK_DIR/audio/$rec_name.mp3"
                 elif [ "$rec_choice" == "2" ]; then
                     echo -e "${RED}[REC] Press Ctrl+C to stop recording.${NC}"
-                    # Tiny resolution, low framerate video blog
                     ffmpeg -f v4l2 -i /dev/video0 -f alsa -i default -c:v libvpx -b:v 100K -r 10 -s 320x240 -c:a libvorbis -b:a 16k "$BANK_DIR/video/$rec_name.webm"
                 fi
                 echo -e "${GREEN}Saved to word_at_bank. Ready for FTF.${NC}"
@@ -595,7 +582,6 @@ EOF
                 EXT="${target_file##*.}"
                 OUT_FILE="/tmp/$(basename "$target_file")"
                 
-                # Route the file to the correct FFmpeg/ImageMagick cruncher
                 if [[ "$EXT" == "mp4" || "$EXT" == "webm" ]]; then
                     echo -e "${WHITE}Crunching Video to < 1.4MB target...${NC}"
                     ffmpeg -i "$target_file" -c:v libx264 -crf 35 -preset veryslow -b:v 150k -c:a aac -b:a 16k -s 320x240 "$OUT_FILE.mp4" -y
@@ -626,7 +612,6 @@ EOF
                 shopt -s nullglob nocaseglob
                 enc_files=()
                 
-                # Filter what files to show based on the mode selected
                 if [ "$enc_choice" == "1" ]; then
                     enc_files=("$BANK_DIR"/images/*.jpg "$BANK_DIR"/images/*.jpeg "$BANK_DIR"/images/*.png)
                     [ -d "$ACTIVE_TARGET" ] && enc_files+=("$ACTIVE_TARGET"/*.jpg "$ACTIVE_TARGET"/*.jpeg "$ACTIVE_TARGET"/*.png)
@@ -641,7 +626,6 @@ EOF
                 fi
                 shopt -u nullglob nocaseglob
                 
-                # Build a clean list of only valid files
                 valid_enc=()
                 for f in "${enc_files[@]}"; do [ -f "$f" ] && valid_enc+=("$f"); done
                 
@@ -664,7 +648,6 @@ EOF
                         if [ "$enc_choice" == "1" ]; then
                         echo -e "${WHITE}Modulating image into SSTV frequencies (MartinM1)...${NC}"
                         if command -v pysstv >/dev/null 2>&1 || python3 -m pysstv -h >/dev/null 2>&1; then
-                            # ImageMagick forces everything into a standardized temp jpg to prevent format errors
                             convert "$enc_file" -resize 320x256\! /tmp/sstv_temp.jpg
                             python3 -m pysstv --mode MartinM1 /tmp/sstv_temp.jpg "$BANK_DIR/audio/${OUT_NAME}_sstv.wav"
                             rm -f /tmp/sstv_temp.jpg
