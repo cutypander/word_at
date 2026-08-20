@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # ==========================================
-# word@ OS CORE - FEATHERWEIGHT EDITION (v3.4)
+# word@ OS CORE - FEATHERWEIGHT EDITION (v3.5)
 # ==========================================
-KERNEL_VERSION="3.4"
+KERNEL_VERSION="3.5"
 BANK_DIR="$HOME/word_at_bank"
 ADDON_DIR="$HOME/.word_addons"
 LEDGER_FILE="$HOME/.floppy_ledger"
@@ -82,7 +82,6 @@ case "$1" in
             echo -e "${WHITE}[IDLE]${NC} No background terminals detected."
         fi
 
-        # Boot Background Math Daemon silently if not running
         if ! pgrep -f "word@ daemon" >/dev/null && is_pkg_installed "inotify-tools"; then
             bash "$0" daemon &
         fi
@@ -90,7 +89,6 @@ case "$1" in
         ;;
 
     "daemon")
-        # In-line math watcher for text files
         while true; do
             MODIFIED_FILE=$(inotifywait -q -e close_write --format '%w%f' "$BANK_DIR/text/" 2>/dev/null)
             if [[ "$MODIFIED_FILE" == *.txt ]]; then
@@ -141,69 +139,35 @@ except: pass
                     sudo chmod +x /usr/local/bin/word@
                     echo -e "${GREEN}OS Core successfully updated! Restart word@ to apply changes.${NC}"
                 else
-                    echo -e "${RED}Update failed. Check network connection.${NC}"
+                    echo -e "${RED}Update failed.${NC}"
                 fi
                 press_enter ;;
             2)
                 echo -e "${WHITE}Installing OS packages...${NC}"
                 sudo apt-get update
                 sudo apt-get install -y python3 curl ffmpeg mpg123 alsa-utils inotify-tools dosfstools imagemagick python3-opencv v4l-utils w3m mpv minimodem python3-pil python3-pip mousepad
-                
                 echo -e "${WHITE}Fetching pySSTV via pip...${NC}"
                 pip3 install pySSTV --break-system-packages
-                
-                echo -e "${GREEN}Process finished. Check the text above for any raw errors.${NC}"
+                echo -e "${GREEN}Process finished.${NC}"
                 press_enter ;;
             3)
                 echo -e "${WHITE}Downloading ASCII Video Engine...${NC}"
-                if curl -sL "https://raw.githubusercontent.com/cutypander/word_at/main/word_ascii.py?$(date +%s)" -o "$ADDON_DIR/word_ascii.py"; then
-                    echo -e "${GREEN}ASCII Video Engine installed!${NC}"
-                else
-                    echo -e "${RED}Download failed.${NC}"
-                fi
-                press_enter ;;
+                if curl -sL "https://raw.githubusercontent.com/cutypander/word_at/main/word_ascii.py?$(date +%s)" -o "$ADDON_DIR/word_ascii.py"; then echo -e "${GREEN}Installed!${NC}"; else echo -e "${RED}Download failed.${NC}"; fi; press_enter ;;
             4)
                 echo -e "${WHITE}Downloading Software Launcher...${NC}"
-                if curl -sL "https://raw.githubusercontent.com/cutypander/word_at/main/word_launcher.sh?$(date +%s)" -o "$ADDON_DIR/word_launcher.sh"; then
-                    chmod +x "$ADDON_DIR/word_launcher.sh"
-                    echo -e "${GREEN}Software Launcher installed!${NC}"
-                else
-                    echo -e "${RED}Download failed.${NC}"
-                fi
-                press_enter ;;
+                if curl -sL "https://raw.githubusercontent.com/cutypander/word_at/main/word_launcher.sh?$(date +%s)" -o "$ADDON_DIR/word_launcher.sh"; then chmod +x "$ADDON_DIR/word_launcher.sh"; echo -e "${GREEN}Installed!${NC}"; else echo -e "${RED}Download failed.${NC}"; fi; press_enter ;;
             5)
                 echo -e "${WHITE}Downloading Math Engine...${NC}"
-                if curl -sL "https://raw.githubusercontent.com/cutypander/word_at/main/word_math.py?$(date +%s)" -o "$ADDON_DIR/word_math.py"; then
-                    echo -e "${GREEN}Math Engine installed!${NC}"
-                else
-                    echo -e "${RED}Download failed.${NC}"
-                fi
-                press_enter ;;
+                if curl -sL "https://raw.githubusercontent.com/cutypander/word_at/main/word_math.py?$(date +%s)" -o "$ADDON_DIR/word_math.py"; then echo -e "${GREEN}Installed!${NC}"; else echo -e "${RED}Download failed.${NC}"; fi; press_enter ;;
             6)
                 echo -e "${WHITE}Downloading Web Gateway...${NC}"
-                if curl -sL "https://raw.githubusercontent.com/cutypander/word_at/main/word_web.sh?$(date +%s)" -o "$ADDON_DIR/word_web.sh"; then
-                    chmod +x "$ADDON_DIR/word_web.sh"
-                    echo -e "${GREEN}Web Gateway installed!${NC}"
-                else
-                    echo -e "${RED}Download failed.${NC}"
-                fi
-                press_enter ;;
+                if curl -sL "https://raw.githubusercontent.com/cutypander/word_at/main/word_web.sh?$(date +%s)" -o "$ADDON_DIR/word_web.sh"; then chmod +x "$ADDON_DIR/word_web.sh"; echo -e "${GREEN}Installed!${NC}"; else echo -e "${RED}Download failed.${NC}"; fi; press_enter ;;
             7)
                 echo -e "${WHITE}Downloading Neural Core...${NC}"
-                if curl -sL "https://raw.githubusercontent.com/cutypander/word_at/main/word_brain.py?$(date +%s)" -o "$ADDON_DIR/word_brain.py"; then
-                    echo -e "${GREEN}Neural Core installed!${NC}"
-                else
-                    echo -e "${RED}Download failed.${NC}"
-                fi
-                press_enter ;;
+                if curl -sL "https://raw.githubusercontent.com/cutypander/word_at/main/word_brain.py?$(date +%s)" -o "$ADDON_DIR/word_brain.py"; then echo -e "${GREEN}Installed!${NC}"; else echo -e "${RED}Download failed.${NC}"; fi; press_enter ;;
             8)
                 echo -e "${WHITE}Downloading terr@...${NC}"
-                if curl -sL "https://raw.githubusercontent.com/cutypander/word_at/main/word_game.py?$(date +%s)" -o "$ADDON_DIR/word_game.py"; then
-                    echo -e "${GREEN}terr@ installed!${NC}"
-                else
-                    echo -e "${RED}Download failed.${NC}"
-                fi
-                press_enter ;;
+                if curl -sL "https://raw.githubusercontent.com/cutypander/word_at/main/word_game.py?$(date +%s)" -o "$ADDON_DIR/word_game.py"; then echo -e "${GREEN}Installed!${NC}"; else echo -e "${RED}Download failed.${NC}"; fi; press_enter ;;
             *) ;;
         esac
         exit 0
@@ -217,19 +181,16 @@ except: pass
         echo -e "${GREEN} [ PRODUCTIVITY ]${NC}"
         echo -e "  write [name] : Standard text editor (Nano/GUI)."
         echo -e "  raw [name]   : Distraction-free logger with inline math."
-        
         echo -e "\n${GREEN} [ MEDIA & HARDWARE ]${NC}"
         echo -e "  view         : Open media viewer (Audio, Video, ASCII)."
         echo -e "  ?rec         : Record audio/video directly to Bank."
         echo -e "  ?encode      : Convert formats (Image->SSTV, Text->Audio, File->Base64)."
         echo -e "  ?decode      : Recover files from acoustic or cipher formats."
-        
         echo -e "\n${GREEN} [ DISK MANAGEMENT ]${NC}"
         echo -e "  ?scan        : Find and mount external USB/Floppy drives."
         echo -e "  FTF          : File-To-Floppy. Compress and transfer banks."
         echo -e "  ?flop        : Initialize virtual floppy emulation."
         echo -e "  del!         : Secure deletion and disk formatting."
-        
         echo -e "\n${GREEN} [ SYSTEM CORE ]${NC}"
         echo -e "  ?inst        : Open the App Store to download Addons & Updates."
         echo -e "  theme        : Toggle pure black terminal background globally."
@@ -256,12 +217,8 @@ except: pass
             [ -n "$2" ] && filename="$2" || read -p "Enter document name: " filename
             filepath="$BANK_DIR/text/$filename.txt"
             touch "$filepath"
-            
-            if [ -n "$DISPLAY" ] && command -v mousepad >/dev/null 2>&1; then
-                mousepad "$filepath" 2>/dev/null
-            else
-                nano "$filepath"
-            fi
+            if [ -n "$DISPLAY" ] && command -v mousepad >/dev/null 2>&1; then mousepad "$filepath" 2>/dev/null
+            else nano "$filepath"; fi
             else
             [ -n "$2" ] && filename="$2" || read -p "Enter document name: " filename
             TEMP_FILE="$BANK_DIR/text/.$filename.tmp"
@@ -273,14 +230,9 @@ except: pass
             echo -e "${ORANGE}========================================${NC}"
             > "$TEMP_FILE"
             while IFS= read -r line; do
-                if [[ "$line" == "//SAVE" ]]; then
-                    mv "$TEMP_FILE" "$FINAL_FILE"; echo -e "${WHITE}Draft secured.${NC}"; exit 0
-                elif [[ "$line" == "//REJECT" ]]; then
-                    rm -f "$TEMP_FILE"; echo -e "${RED}Burned.${NC}"; exit 0
-                else
-                    echo "$line" >> "$TEMP_FILE"
-                    cp "$TEMP_FILE" "$FINAL_FILE" 2>/dev/null
-                fi
+                if [[ "$line" == "//SAVE" ]]; then mv "$TEMP_FILE" "$FINAL_FILE"; echo -e "${WHITE}Draft secured.${NC}"; exit 0
+                elif [[ "$line" == "//REJECT" ]]; then rm -f "$TEMP_FILE"; echo -e "${RED}Burned.${NC}"; exit 0
+                else echo "$line" >> "$TEMP_FILE"; cp "$TEMP_FILE" "$FINAL_FILE" 2>/dev/null; fi
             done
         fi
         exit 0
@@ -309,44 +261,30 @@ except: pass
             FILE_PATH=$(find "$BANK_DIR" "$ACTIVE_TARGET" -name "$target" 2>/dev/null | head -n 1)
         fi
 
-        if [[ "$FILE_PATH" == *.mp3 ]]; then
-            echo -e "${WHITE}Playing Audio: $target${NC}"
-            mpg123 -q "$FILE_PATH" 2>/dev/null
-            
-        elif [[ "$FILE_PATH" == *.txt ]]; then
-            echo -e "${WHITE}Reading Text: $target${NC}"
-            less "$FILE_PATH"
-            
+        if [[ "$FILE_PATH" == *.mp3 ]]; then echo -e "${WHITE}Playing Audio: $target${NC}"; mpg123 -q "$FILE_PATH" 2>/dev/null
+        elif [[ "$FILE_PATH" == *.txt ]]; then echo -e "${WHITE}Reading Text: $target${NC}"; less "$FILE_PATH"
         elif [[ "$FILE_PATH" == *.jpg || "$FILE_PATH" == *.jpeg || "$FILE_PATH" == *.png ]]; then
             echo -e "${WHITE}Viewing Image: $target${NC}"
             if command -v chafa >/dev/null 2>&1; then chafa "$FILE_PATH"
             elif command -v catimg >/dev/null 2>&1; then catimg "$FILE_PATH"
             elif [ -n "$DISPLAY" ] && command -v xdg-open >/dev/null 2>&1; then xdg-open "$FILE_PATH" 2>/dev/null
             else echo -e "${RED}No viewer found! Run 'sudo apt install chafa' for terminal images.${NC}"; fi
-            
         elif [[ "$FILE_PATH" == *.mp4 || "$FILE_PATH" == *.webm ]]; then
             echo -e "${ORANGE}========================================${NC}"
             echo -e "  1) Standard Video (GUI Player)"
-            if [ -f "$ADDON_DIR/word_ascii.py" ]; then
-                echo -e "  2) ASCII Render   (Terminal Player)"
-            else
-                echo -e "  ${RED}2) ASCII Render   [REQUIRES ADDON - Run ?inst]${NC}"
-            fi
+            if [ -f "$ADDON_DIR/word_ascii.py" ]; then echo -e "  2) ASCII Render   (Terminal Player)"
+            else echo -e "  ${RED}2) ASCII Render   [REQUIRES ADDON - Run ?inst]${NC}"; fi
             read -p " Select Mode: " vid_mode
 
-            if [[ "$vid_mode" == "1" ]]; then
-                mpv --quiet "$FILE_PATH" >/dev/null 2>&1
+            if [[ "$vid_mode" == "1" ]]; then mpv --quiet "$FILE_PATH" >/dev/null 2>&1
             elif [[ "$vid_mode" == "2" ]]; then
                 if [ -f "$ADDON_DIR/word_ascii.py" ]; then
                     SUB_PATH="${FILE_PATH%.*}.txt"
-                    
                     mpv --no-video --quiet "$FILE_PATH" >/dev/null 2>&1 &
                     AUDIO_PID=$!
                     sleep 0.1
                     kill -STOP $AUDIO_PID 2>/dev/null
-                    
                     trap 'kill -9 $AUDIO_PID $WATCHER_PID 2>/dev/null; hypervisor_release; exit 0' INT
-                    
                     (
                         sleep 0.5
                         PY_PID=$(pgrep -n -f "word_ascii.py")
@@ -354,13 +292,9 @@ except: pass
                             SLEEP_COUNT=0
                             while kill -0 "$PY_PID" 2>/dev/null; do
                                 STAT=$(ps -p "$PY_PID" -o stat= 2>/dev/null)
-                                if [[ "$STAT" == S* ]]; then
-                                    ((SLEEP_COUNT++))
+                                if [[ "$STAT" == S* ]]; then ((SLEEP_COUNT++))
                                 else
-                                    if [ "$SLEEP_COUNT" -ge 4 ]; then
-                                        kill -CONT $AUDIO_PID 2>/dev/null
-                                        break
-                                    fi
+                                    if [ "$SLEEP_COUNT" -ge 4 ]; then kill -CONT $AUDIO_PID 2>/dev/null; break; fi
                                     SLEEP_COUNT=0
                                 fi
                                 sleep 0.1
@@ -369,34 +303,21 @@ except: pass
                     ) >/dev/null 2>&1 &
                     WATCHER_PID=$!
                     disown $WATCHER_PID 2>/dev/null
-                    
                     python3 "$ADDON_DIR/word_ascii.py" "$FILE_PATH" "$SUB_PATH"
-                    
-                    kill -9 $AUDIO_PID 2>/dev/null
-                    kill -9 $WATCHER_PID 2>/dev/null
-                    trap - INT
-                else
-                    echo -e "${RED}Addon missing! Use ?inst to download it.${NC}"
-                fi
+                    kill -9 $AUDIO_PID 2>/dev/null; kill -9 $WATCHER_PID 2>/dev/null; trap - INT
+                else echo -e "${RED}Addon missing! Use ?inst to download it.${NC}"; fi
             fi
         fi
         hypervisor_release
         ;;
 
 "run"|"?calc"|"web"|"brain"|"terr@")
-        if [ "$1" == "run" ] && [ -f "$ADDON_DIR/word_launcher.sh" ]; then
-            bash "$ADDON_DIR/word_launcher.sh"
-        elif [ "$1" == "?calc" ] && [ -f "$ADDON_DIR/word_math.py" ]; then
-            python3 "$ADDON_DIR/word_math.py"
-        elif [ "$1" == "web" ] && [ -f "$ADDON_DIR/word_web.sh" ]; then
-            bash "$ADDON_DIR/word_web.sh"
-        elif [ "$1" == "brain" ] && [ -f "$ADDON_DIR/word_brain.py" ]; then
-            python3 "$ADDON_DIR/word_brain.py"
-        elif [ "$1" == "terr@" ] && [ -f "$ADDON_DIR/word_game.py" ]; then
-            python3 "$ADDON_DIR/word_game.py"
-        else
-            echo -e "${RED}Software missing! Run 'word@ ?inst' to download this feature.${NC}"
-        fi
+        if [ "$1" == "run" ] && [ -f "$ADDON_DIR/word_launcher.sh" ]; then bash "$ADDON_DIR/word_launcher.sh"
+        elif [ "$1" == "?calc" ] && [ -f "$ADDON_DIR/word_math.py" ]; then python3 "$ADDON_DIR/word_math.py"
+        elif [ "$1" == "web" ] && [ -f "$ADDON_DIR/word_web.sh" ]; then bash "$ADDON_DIR/word_web.sh"
+        elif [ "$1" == "brain" ] && [ -f "$ADDON_DIR/word_brain.py" ]; then python3 "$ADDON_DIR/word_brain.py"
+        elif [ "$1" == "terr@" ] && [ -f "$ADDON_DIR/word_game.py" ]; then python3 "$ADDON_DIR/word_game.py"
+        else echo -e "${RED}Software missing! Run 'word@ ?inst' to download this feature.${NC}"; fi
         exit 0
         ;;
 
@@ -431,7 +352,7 @@ except: pass
                         sleep 1
                         
                         if [ -f "$ADDON_DIR/word_ascii.py" ]; then
-                            # THE GEOMETRY FIX: Added '2880' block limit to the end of badblocks to force it to run
+                            # Python reads raw unbuffered bytes to prevent hardware-error crashes
                             sudo timeout 120 badblocks -f -sv -b 512 -c 32 "/dev/$FLOPPY_DEV" 2880 2>&1 | python3 -u - << 'EOF'
 import sys, math, time
 TOTAL_BLOCKS = 2880 
@@ -443,10 +364,8 @@ start_time = time.time()
 def draw_grid():
     sys.stdout.write("\033[u\033[J") 
     sys.stdout.write("\033[38;5;208m--- FLOPPY MAGNETIC HEALTH MAP ---\033[0m\n\n")
-    
     if time.time() - start_time > 60:
         sys.stdout.write("\033[33m[WARNING] Scan exceeding 60s. Magnetic degradation likely. Drive is struggling...\033[0m\n\n")
-        
     for r in range(rows):
         line = ""
         for c in range(cols):
@@ -471,6 +390,7 @@ def process_line(line):
         try:
             pct_str = line.split("%")[0].split()[-1]
             pct = float(pct_str)
+            if pct > 100.0: pct = 100.0
             current_block = int((pct / 100.0) * TOTAL_BLOCKS)
             for i in range(current_block):
                 if i < TOTAL_BLOCKS and grid[i] == "·":
@@ -483,17 +403,18 @@ try:
     draw_grid()
     buffer = ""
     while True:
-        char = sys.stdin.read(1)
-        if not char:
+        char_bytes = sys.stdin.buffer.read(1)
+        if not char_bytes:
             if buffer: process_line(buffer)
             break
+        char = char_bytes.decode('utf-8', errors='ignore')
         if char in ('\r', '\n', '\b'):
             if buffer:
                 process_line(buffer)
                 buffer = ""
         else:
             buffer += char
-except KeyboardInterrupt: pass
+except Exception: pass
 finally: sys.stdout.write("\033[?25h\n")
 EOF
                             SCAN_EXIT=${PIPESTATUS[0]}
@@ -505,7 +426,6 @@ EOF
                             ) &
                             WARNING_PID=$!
                             
-                            # GEOMETRY FIX: Added '2880' here as well
                             sudo timeout 120 badblocks -f -sv -b 512 -c 32 "/dev/$FLOPPY_DEV" 2880 2>&1 | while read -r line; do
                                 if [[ "$line" == *"done, "* ]]; then
                                     pct=$(echo "$line" | grep -o "[0-9]*%")
@@ -543,9 +463,7 @@ EOF
                             if [[ "$scrape_choice" == "y" || "$scrape_choice" == "Y" ]]; then
                                 read -p " Enter name for recovery file: " scrape_name
                                 echo -e "${ORANGE}Scraping raw data... Expect grinding noises.${NC}"
-                                
                                 sudo dd if="/dev/$FLOPPY_DEV" bs=512 conv=noerror,sync 2>/dev/null | strings > "$BANK_DIR/text/RECOVER_${scrape_name}.txt"
-                                
                                 echo -e "${GREEN}Scrape complete. Data dumped to $BANK_DIR/text/RECOVER_${scrape_name}.txt${NC}"
                             fi
                         fi
@@ -641,10 +559,7 @@ EOF
                     echo -e "${RED}No compatible files found for this mode.${NC}"
                 else
                     i=1
-                    for f in "${valid_enc[@]}"; do
-                        echo -e "  ${WHITE}$i)${NC} $(basename "$f")"
-                        ((i++))
-                    done
+                    for f in "${valid_enc[@]}"; do echo -e "  ${WHITE}$i)${NC} $(basename "$f")"; ((i++)); done
                     
                     read -p " Select file (1-$((i-1))): " f_choice
                     enc_file="${valid_enc[$((f_choice-1))]}"
@@ -653,24 +568,20 @@ EOF
                     
                     OUT_NAME=$(basename "$enc_file" | cut -d. -f1)
                     
-                        if [ "$enc_choice" == "1" ]; then
+                    if [ "$enc_choice" == "1" ]; then
                         echo -e "${WHITE}Modulating image into SSTV frequencies (MartinM1)...${NC}"
                         if command -v pysstv >/dev/null 2>&1 || python3 -m pysstv -h >/dev/null 2>&1; then
                             convert "$enc_file" -resize 320x256\! /tmp/sstv_temp.jpg
                             python3 -m pysstv --mode MartinM1 /tmp/sstv_temp.jpg "$BANK_DIR/audio/${OUT_NAME}_sstv.wav"
                             rm -f /tmp/sstv_temp.jpg
                             echo -e "${GREEN}Encoded to $BANK_DIR/audio/${OUT_NAME}_sstv.wav${NC}"
-                        else
-                            echo -e "${RED}[ERROR] Python pySSTV missing. Run '?inst' Option 2.${NC}"
-                        fi
+                        else echo -e "${RED}[ERROR] Python pySSTV missing. Run '?inst' Option 2.${NC}"; fi
                     elif [ "$enc_choice" == "2" ]; then
                         echo -e "${WHITE}Modulating text into audio frequencies...${NC}"
                         if command -v minimodem >/dev/null 2>&1; then
                             minimodem --tx -f "$BANK_DIR/audio/${OUT_NAME}_modem.wav" rtty < "$enc_file"
                             echo -e "${GREEN}Encoded to $BANK_DIR/audio/${OUT_NAME}_modem.wav${NC}"
-                        else
-                            echo -e "${RED}[ERROR] 'minimodem' missing. Run '?inst' Option 2.${NC}"
-                        fi
+                        else echo -e "${RED}[ERROR] 'minimodem' missing. Run '?inst' Option 2.${NC}"; fi
                     elif [ "$enc_choice" == "3" ]; then
                         echo -e "${WHITE}Converting to Base64 Cipher...${NC}"
                         base64 "$enc_file" > "$BANK_DIR/text/${OUT_NAME}_cipher.txt"
@@ -698,9 +609,7 @@ EOF
                 elif [ "$dec_choice" == "2" ]; then
                     dec_files=("$BANK_DIR"/text/*.txt)
                     [ -d "$ACTIVE_TARGET" ] && dec_files+=("$ACTIVE_TARGET"/*.txt)
-                else
-                    echo -e "${RED}Invalid selection.${NC}"; shopt -u nullglob nocaseglob; press_enter; exit 1
-                fi
+                else echo -e "${RED}Invalid selection.${NC}"; shopt -u nullglob nocaseglob; press_enter; exit 1; fi
                 shopt -u nullglob nocaseglob
                 
                 valid_dec=()
@@ -710,16 +619,12 @@ EOF
                     echo -e "${RED}No compatible files found for decoding.${NC}"
                 else
                     i=1
-                    for f in "${valid_dec[@]}"; do
-                        echo -e "  ${WHITE}$i)${NC} $(basename "$f")"
-                        ((i++))
-                    done
+                    for f in "${valid_dec[@]}"; do echo -e "  ${WHITE}$i)${NC} $(basename "$f")"; ((i++)); done
                     
                     read -p " Select file (1-$((i-1))): " f_choice
                     dec_file="${valid_dec[$((f_choice-1))]}"
                     
                     if [ ! -f "$dec_file" ]; then echo -e "${RED}Invalid selection.${NC}"; press_enter; exit 1; fi
-                    
                     OUT_NAME=$(basename "$dec_file" | cut -d. -f1)
                     
                     if [ "$dec_choice" == "1" ]; then
@@ -727,9 +632,7 @@ EOF
                         if command -v minimodem >/dev/null 2>&1; then
                             minimodem --rx -f "$dec_file" rtty > "$BANK_DIR/text/${OUT_NAME}_decoded.txt"
                             echo -e "${GREEN}Decoded to $BANK_DIR/text/${OUT_NAME}_decoded.txt${NC}"
-                        else
-                             echo -e "${RED}[ERROR] 'minimodem' missing. Run '?inst' Option 2.${NC}"
-                        fi
+                        else echo -e "${RED}[ERROR] 'minimodem' missing. Run '?inst' Option 2.${NC}"; fi
                     elif [ "$dec_choice" == "2" ]; then
                         echo -e "${WHITE}Decoding Base64 Cipher...${NC}"
                         read -p " Enter original file extension (e.g., jpg, mp4, txt): " ext
