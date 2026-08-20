@@ -402,18 +402,12 @@ except: pass
         exit 0
         ;;
 
-"?scan"|"del!"|"?flop"|"?rec"|"FTF"|"?work"|"?gath"|"?encode"|"?decode")
-        # ---------------------------------------------------------
-        # THE HARDWARE, MEDIA & ENCODING BLOCK
-        # ---------------------------------------------------------
-        case "$1" in
-            "?scan")
+"?scan")
                 clear
                 echo -e "${ORANGE}========================================${NC}"
                 echo -e "${WHITE} PHYSICAL MEDIA SCANNER${NC}"
                 echo -e "${ORANGE}========================================${NC}"
                 
-                # PRIME SUDO FIRST: This asks for your password upfront so the pipeline doesn't collapse
                 sudo -v
                 
                 FLOPPY_DEV=$(lsblk -ndo NAME,TYPE | awk '$2=="disk" {print $1}' | grep -E "fd0|sd[b-z]" | head -n 1)
@@ -421,23 +415,25 @@ except: pass
                 if [ -z "$FLOPPY_DEV" ]; then 
                     echo -e "${RED}[ERROR] No floppy drive detected.${NC}"
                 else
-                    # THE SAFETY CATCH: Ask the OS for the exact capacity of the drive in bytes
                     DRIVE_SIZE=$(lsblk -bndo SIZE "/dev/$FLOPPY_DEV" | tr -d ' ' 2>/dev/null)
                     
-                    # If the drive is larger than 2,000,000 bytes (2MB), abort immediately
                     if [ -n "$DRIVE_SIZE" ] && [ "$DRIVE_SIZE" -gt 2000000 ]; then
                         echo -e "${RED}[CRITICAL ERROR] Target /dev/$FLOPPY_DEV is too large ($((DRIVE_SIZE / 1048576)) MB).${NC}"
                         echo -e "${RED}Scan aborted to prevent accidental destruction of standard hard drives.${NC}"
                     else
                         echo -e "${GREEN}[OK] Drive detected at /dev/$FLOPPY_DEV.${NC}"
+                        
+                        # THE FIX 1: Force unmount the floppy so badblocks gets exclusive access
+                        sudo umount "/dev/${FLOPPY_DEV}"* 2>/dev/null
+                        
                         echo -e "${WHITE}Initializing read head... (Press Ctrl+C to abort)${NC}"
                         
-                        # UI ANCHOR: Saves the exact cursor position right here
                         echo -ne "\033[s" 
                         sleep 1
                         
                         if [ -f "$ADDON_DIR/word_ascii.py" ]; then
-                            sudo timeout 120 badblocks -sv "/dev/$FLOPPY_DEV" -b 512 -c 32 2>&1 | python3 -u - << 'EOF'
+                            # THE FIX 2: Added -f to force the scan even if the OS tries to hold onto it
+                            sudo timeout 120 badblocks -f -sv "/dev/$FLOPPY_DEV" -b 512 -c 32 2>&1 | python3 -u - << 'EOF'
 import sys, math, time
 TOTAL_BLOCKS = 2880 
 cols = 80
@@ -446,7 +442,6 @@ grid = ["·"] * TOTAL_BLOCKS
 start_time = time.time()
 
 def draw_grid():
-    # Jumps to the UI anchor and only clears the space below it, preventing the huge gap
     sys.stdout.write("\033[u\033[J") 
     sys.stdout.write("\033[38;5;208m--- FLOPPY MAGNETIC HEALTH MAP ---\033[0m\n\n")
     
@@ -465,27 +460,41 @@ def draw_grid():
         sys.stdout.write(line + "\n")
     sys.stdout.flush()
 
+def process_line(line):
+    line = line.strip()
+    if not line: return
+    if line.isdigit():
+        block_num = int(line)
+        if block_num < TOTAL_BLOCKS:
+            grid[block_num] = "!"
+            draw_grid()
+    elif "% done" in line:
+        try:
+            pct_str = line.split("%")[0].split()[-1]
+            pct = float(pct_str)
+            current_block = int((pct / 100.0) * TOTAL_BLOCKS)
+            for i in range(current_block):
+                if i < TOTAL_BLOCKS and grid[i] == "·":
+                    grid[i] = "█"
+            draw_grid()
+        except ValueError: pass
+
 sys.stdout.write("\033[?25l") 
 try:
     draw_grid()
-    for line in sys.stdin:
-        line = line.strip()
-        if not line: continue
-        if line.isdigit():
-            block_num = int(line)
-            if block_num < TOTAL_BLOCKS:
-                grid[block_num] = "!"
-                draw_grid()
-        elif "% done" in line:
-            try:
-                pct_str = line.split("%")[0].split()[-1]
-                pct = float(pct_str)
-                current_block = int((pct / 100.0) * TOTAL_BLOCKS)
-                for i in range(current_block):
-                    if i < TOTAL_BLOCKS and grid[i] == "·":
-                        grid[i] = "█"
-                draw_grid()
-            except ValueError: pass
+    buffer = ""
+    # THE FIX 3: Read byte-by-byte to catch carriage returns (\r) and backspaces (\b) instead of waiting for Newlines
+    while True:
+        char = sys.stdin.read(1)
+        if not char:
+            if buffer: process_line(buffer)
+            break
+        if char in ('\r', '\n', '\b'):
+            if buffer:
+                process_line(buffer)
+                buffer = ""
+        else:
+            buffer += char
 except KeyboardInterrupt: pass
 finally: sys.stdout.write("\033[?25h\n")
 EOF
@@ -498,7 +507,7 @@ EOF
                             ) &
                             WARNING_PID=$!
                             
-                            sudo timeout 120 badblocks -sv "/dev/$FLOPPY_DEV" -b 512 -c 32 2>&1 | while read -r line; do
+                            sudo timeout 120 badblocks -f -sv "/dev/$FLOPPY_DEV" -b 512 -c 32 2>&1 | while read -r line; do
                                 if [[ "$line" == *"done, "* ]]; then
                                     pct=$(echo "$line" | grep -o "[0-9]*%")
                                     echo -ne "\r${WHITE}Magnetic Sector Health:${NC} ${GREEN}[${pct} Verified]${NC}\033[K"
