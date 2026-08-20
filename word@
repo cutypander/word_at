@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # ==========================================
-# word@ OS CORE - FEATHERWEIGHT EDITION (v3.3)
+# word@ OS CORE - FEATHERWEIGHT EDITION (v3.4)
 # ==========================================
-KERNEL_VERSION="3.3"
+KERNEL_VERSION="3.4"
 BANK_DIR="$HOME/word_at_bank"
 ADDON_DIR="$HOME/.word_addons"
 LEDGER_FILE="$HOME/.floppy_ledger"
@@ -257,11 +257,9 @@ except: pass
             filepath="$BANK_DIR/text/$filename.txt"
             touch "$filepath"
             
-            # If a graphical display is detected, launch Mousepad and wait.
             if [ -n "$DISPLAY" ] && command -v mousepad >/dev/null 2>&1; then
                 mousepad "$filepath" 2>/dev/null
             else
-                # Fallback to nano if no GUI is available
                 nano "$filepath"
             fi
             else
@@ -281,7 +279,7 @@ except: pass
                     rm -f "$TEMP_FILE"; echo -e "${RED}Burned.${NC}"; exit 0
                 else
                     echo "$line" >> "$TEMP_FILE"
-                    cp "$TEMP_FILE" "$FINAL_FILE" 2>/dev/null # Triggers daemon live
+                    cp "$TEMP_FILE" "$FINAL_FILE" 2>/dev/null
                 fi
             done
         fi
@@ -402,7 +400,9 @@ except: pass
         exit 0
         ;;
 
-"?scan")
+"?scan"|"del!"|"?flop"|"?rec"|"FTF"|"?work"|"?gath"|"?encode"|"?decode")
+        case "$1" in
+            "?scan")
                 clear
                 echo -e "${ORANGE}========================================${NC}"
                 echo -e "${WHITE} PHYSICAL MEDIA SCANNER${NC}"
@@ -423,7 +423,6 @@ except: pass
                     else
                         echo -e "${GREEN}[OK] Drive detected at /dev/$FLOPPY_DEV.${NC}"
                         
-                        # THE FIX 1: Force unmount the floppy so badblocks gets exclusive access
                         sudo umount "/dev/${FLOPPY_DEV}"* 2>/dev/null
                         
                         echo -e "${WHITE}Initializing read head... (Press Ctrl+C to abort)${NC}"
@@ -432,8 +431,8 @@ except: pass
                         sleep 1
                         
                         if [ -f "$ADDON_DIR/word_ascii.py" ]; then
-                            # THE FIX 2: Added -f to force the scan even if the OS tries to hold onto it
-                            sudo timeout 120 badblocks -f -sv "/dev/$FLOPPY_DEV" -b 512 -c 32 2>&1 | python3 -u - << 'EOF'
+                            # THE GEOMETRY FIX: Added '2880' block limit to the end of badblocks to force it to run
+                            sudo timeout 120 badblocks -f -sv -b 512 -c 32 "/dev/$FLOPPY_DEV" 2880 2>&1 | python3 -u - << 'EOF'
 import sys, math, time
 TOTAL_BLOCKS = 2880 
 cols = 80
@@ -483,7 +482,6 @@ sys.stdout.write("\033[?25l")
 try:
     draw_grid()
     buffer = ""
-    # THE FIX 3: Read byte-by-byte to catch carriage returns (\r) and backspaces (\b) instead of waiting for Newlines
     while True:
         char = sys.stdin.read(1)
         if not char:
@@ -507,7 +505,8 @@ EOF
                             ) &
                             WARNING_PID=$!
                             
-                            sudo timeout 120 badblocks -f -sv "/dev/$FLOPPY_DEV" -b 512 -c 32 2>&1 | while read -r line; do
+                            # GEOMETRY FIX: Added '2880' here as well
+                            sudo timeout 120 badblocks -f -sv -b 512 -c 32 "/dev/$FLOPPY_DEV" 2880 2>&1 | while read -r line; do
                                 if [[ "$line" == *"done, "* ]]; then
                                     pct=$(echo "$line" | grep -o "[0-9]*%")
                                     echo -ne "\r${WHITE}Magnetic Sector Health:${NC} ${GREEN}[${pct} Verified]${NC}\033[K"
