@@ -419,18 +419,34 @@ except: pass
                 echo -e "${WHITE} PHYSICAL MEDIA SCANNER${NC}"
                 echo -e "${ORANGE}========================================${NC}"
                 
+                # 1. PRIME SUDO: Asks for password upfront so the pipeline doesn't collapse
+                sudo -v
+                
+                # 2. LOCATE HARDWARE
                 FLOPPY_DEV=$(lsblk -ndo NAME,TYPE | awk '$2=="disk" {print $1}' | grep -E "fd0|sd[b-z]" | head -n 1)
                 
                 if [ -z "$FLOPPY_DEV" ]; then 
                     echo -e "${RED}[ERROR] No floppy drive detected.${NC}"
                 else
-                    echo -e "${GREEN}[OK] Drive detected at /dev/$FLOPPY_DEV.${NC}"
-                    echo -e "${WHITE}Initializing read head... (Press Ctrl+C to abort)${NC}"
-                    sleep 1
+                    # 3. SAFETY CATCH: Ask OS for exact capacity in bytes
+                    DRIVE_SIZE=$(lsblk -bndo SIZE "/dev/$FLOPPY_DEV" | tr -d ' ' 2>/dev/null)
                     
-                    if [ -f "$ADDON_DIR/word_ascii.py" ]; then
-                        # Here-Doc approach prevents any Bash syntax/quote errors
-                        sudo timeout 120 badblocks -sv "/dev/$FLOPPY_DEV" -b 512 -c 32 2>&1 | python3 - << 'EOF'
+                    # If drive is larger than 2MB (2000000 bytes), abort to protect hard drives
+                    if [ -n "$DRIVE_SIZE" ] && [ "$DRIVE_SIZE" -gt 2000000 ]; then
+                        echo -e "${RED}[CRITICAL ERROR] Target /dev/$FLOPPY_DEV is too large ($((DRIVE_SIZE / 1048576)) MB).${NC}"
+                        echo -e "${RED}Scan aborted to prevent accidental destruction of standard hard drives.${NC}"
+                    else
+                        echo -e "${GREEN}[OK] Drive detected at /dev/$FLOPPY_DEV.${NC}"
+                        echo -e "${WHITE}Initializing read head... (Press Ctrl+C to abort)${NC}"
+                        
+                        # UI ANCHOR: Saves exact cursor position here
+                        echo -ne "\033[s" 
+                        sleep 1
+                        
+                        # 4. THE SCANNER
+                        if [ -f "$ADDON_DIR/word_ascii.py" ]; then
+                            # Uses 'python3 -u' for unbuffered, instant terminal rendering
+                            sudo timeout 120 badblocks -sv "/dev/$FLOPPY_DEV" -b 512 -c 32 2>&1 | python3 -u - << 'EOF'
 import sys, math, time
 TOTAL_BLOCKS = 2880 
 cols = 80
@@ -439,11 +455,10 @@ grid = ["·"] * TOTAL_BLOCKS
 start_time = time.time()
 
 def draw_grid():
-    # \033[2J explicitly wipes the entire screen to prevent waterfall scrolling
-    sys.stdout.write("\033[2J\033[H") 
+    # Jump to UI anchor and clear below to prevent scrolling gaps
+    sys.stdout.write("\033[u\033[J") 
     sys.stdout.write("\033[38;5;208m--- FLOPPY MAGNETIC HEALTH MAP ---\033[0m\n\n")
     
-    # Warning handled cleanly inside Python to prevent stream collisions
     if time.time() - start_time > 60:
         sys.stdout.write("\033[33m[WARNING] Scan exceeding 60s. Magnetic degradation likely. Drive is struggling...\033[0m\n\n")
         
@@ -483,58 +498,59 @@ try:
 except KeyboardInterrupt: pass
 finally: sys.stdout.write("\033[?25h\n")
 EOF
-                        SCAN_EXIT=${PIPESTATUS[0]}
-                    else
-                        echo -e "${ORANGE}[ASCII Engine Missing] Engaging raw text telemetry...${NC}\n"
+                            SCAN_EXIT=${PIPESTATUS[0]}
+                        else
+                            echo -e "${ORANGE}[ASCII Engine Missing] Engaging raw text telemetry...${NC}\n"
+                            # Bash fallback 60s warning
+                            (
+                                sleep 60
+                                echo -ne "\033[s\033[999;1H\n\033[33m[WARNING] Scan exceeding 60s. Magnetic degradation likely. Drive is struggling...\033[0m\033[u"
+                            ) &
+                            WARNING_PID=$!
+                            
+                            sudo timeout 120 badblocks -sv "/dev/$FLOPPY_DEV" -b 512 -c 32 2>&1 | while read -r line; do
+                                if [[ "$line" == *"done, "* ]]; then
+                                    pct=$(echo "$line" | grep -o "[0-9]*%")
+                                    echo -ne "\r${WHITE}Magnetic Sector Health:${NC} ${GREEN}[${pct} Verified]${NC}\033[K"
+                                elif [[ "$line" =~ ^[0-9]+$ ]]; then
+                                    echo -e "\n${RED}[!] CRITICAL: Sector ${line} is dead.${NC}"
+                                fi
+                            done
+                            SCAN_EXIT=${PIPESTATUS[0]}
+                            kill $WARNING_PID 2>/dev/null
+                        fi
                         
-                        # Fallback warning runs in bash only if Python isn't drawing
-                        (
-                            sleep 60
-                            echo -e "\n\033[33m[WARNING] Scan exceeding 60s. Magnetic degradation likely. Drive is struggling...\033[0m"
-                        ) &
-                        WARNING_PID=$!
+                        # 5. DIAGNOSTICS & SCRAPING
+                        echo -e "\n"
+                        if [ $SCAN_EXIT -eq 124 ]; then
+                            echo -e "${RED}====================================================${NC}"
+                            echo -e "${RED}[CRITICAL TIMEOUT] Scan forcibly terminated at 120s.${NC}"
+                            echo -e "${RED}The drive firmware is locked in a retry loop on a dead track.${NC}"
+                            echo -e "${RED}File table corruption is guaranteed. Do not attempt standard mounts.${NC}"
+                            echo -e "${RED}====================================================${NC}"
+                            NEEDS_SCRAPE=true
+                        elif [ $SCAN_EXIT -ne 0 ]; then
+                            echo -e "${RED}[WARNING] Bad sectors detected. Data loss probable.${NC}"
+                            NEEDS_SCRAPE=true
+                        else
+                            echo -e "${GREEN}[HEALTHY] Scan sequence completed successfully.${NC}"
+                            NEEDS_SCRAPE=false
+                        fi
                         
-                        sudo timeout 120 badblocks -sv "/dev/$FLOPPY_DEV" -b 512 -c 32 2>&1 | while read -r line; do
-                            if [[ "$line" == *"done, "* ]]; then
-                                pct=$(echo "$line" | grep -o "[0-9]*%")
-                                echo -ne "\r${WHITE}Magnetic Sector Health:${NC} ${GREEN}[${pct} Verified]${NC}\033[K"
-                            elif [[ "$line" =~ ^[0-9]+$ ]]; then
-                                echo -e "\n${RED}[!] CRITICAL: Sector ${line} is dead.${NC}"
+                        if [ "$NEEDS_SCRAPE" = true ]; then
+                            echo -e "\n${WHITE}Would you like to SCRAPE the disk?${NC}"
+                            echo -e "This will bypass the filesystem, force-read the raw magnetic platter,"
+                            echo -e "and dump any surviving human-readable text into a recovery file."
+                            read -p " Scrape disk? (y/n): " scrape_choice
+                            
+                            if [[ "$scrape_choice" == "y" || "$scrape_choice" == "Y" ]]; then
+                                read -p " Enter name for recovery file: " scrape_name
+                                echo -e "${ORANGE}Scraping raw data... Expect grinding noises.${NC}"
+                                
+                                sudo dd if="/dev/$FLOPPY_DEV" bs=512 conv=noerror,sync 2>/dev/null | strings > "$BANK_DIR/text/RECOVER_${scrape_name}.txt"
+                                
+                                echo -e "${GREEN}Scrape complete. Data dumped to $BANK_DIR/text/RECOVER_${scrape_name}.txt${NC}"
                             fi
-                        done
-                        SCAN_EXIT=${PIPESTATUS[0]}
-                        kill $WARNING_PID 2>/dev/null
-                    fi
-                    
-                    echo -e "\n"
-                    if [ $SCAN_EXIT -eq 124 ]; then
-                        echo -e "${RED}====================================================${NC}"
-                        echo -e "${RED}[CRITICAL TIMEOUT] Scan forcibly terminated at 120s.${NC}"
-                        echo -e "${RED}The drive firmware is locked in a retry loop on a dead track.${NC}"
-                        echo -e "${RED}File table corruption is guaranteed. Do not attempt standard mounts.${NC}"
-                        echo -e "${RED}====================================================${NC}"
-                        NEEDS_SCRAPE=true
-                    elif [ $SCAN_EXIT -ne 0 ]; then
-                        echo -e "${RED}[WARNING] Bad sectors detected. Data loss probable.${NC}"
-                        NEEDS_SCRAPE=true
-                    else
-                        echo -e "${GREEN}[HEALTHY] Scan sequence completed successfully.${NC}"
-                        NEEDS_SCRAPE=false
-                    fi
-                    
-                    if [ "$NEEDS_SCRAPE" = true ]; then
-                        echo -e "\n${WHITE}Would you like to SCRAPE the disk?${NC}"
-                        echo -e "This will bypass the filesystem, force-read the raw magnetic platter,"
-                        echo -e "and dump any surviving human-readable text into a recovery file."
-                        read -p " Scrape disk? (y/n): " scrape_choice
-                        
-                        if [[ "$scrape_choice" == "y" || "$scrape_choice" == "Y" ]]; then
-                            read -p " Enter name for recovery file: " scrape_name
-                            echo -e "${ORANGE}Scraping raw data... Expect grinding noises.${NC}"
-                            
-                            sudo dd if="/dev/$FLOPPY_DEV" bs=512 conv=noerror,sync 2>/dev/null | strings > "$BANK_DIR/text/RECOVER_${scrape_name}.txt"
-                            
-                            echo -e "${GREEN}Scrape complete. Data dumped to $BANK_DIR/text/RECOVER_${scrape_name}.txt${NC}"
                         fi
                     fi
                 fi
